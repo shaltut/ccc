@@ -132,7 +132,8 @@ a { color: var(--accent); }
 
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
-main:focus:not(:focus-visible) { outline: none; }
+main[tabindex='-1']:focus { outline: none; }
+/* ↑ main is the router's tabindex=-1 focus target, not a control: no ring around the whole page. */
 
 /* ---------- controls ---------- */
 

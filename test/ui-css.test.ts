@@ -19,7 +19,8 @@ test('transitions name their properties and never use all', () => {
 test('focus stays visible', () => {
   assert.match(css, /:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--focus\)/);
   for (const m of css.matchAll(/([^{}]+)\{[^}]*outline:\s*(?:none|0)\s*;/g)) {
-    assert.match(m[1]!, /:focus:not\(:focus-visible\)/, `outline removed outside :focus:not(:focus-visible): ${m[1]!.trim()}`);
+    // Allowed: the click-only state of a control, or main, a tabindex=-1 focus target that is not a control.
+    assert.match(m[1]!, /:focus:not\(:focus-visible\)|^\s*main\[tabindex='-1'\]:focus\s*$/, `outline removed outside an allowed selector: ${m[1]!.trim()}`);
   }
 });
 
@@ -60,4 +61,8 @@ test('index declares theme colours, the skip link, the sidebar and both fonts', 
   assert.match(html, /IBM\+Plex\+Mono/);
   assert.doesNotMatch(html, /Condensed/);
   assert.match(html, /<dialog id="keys"/);
+});
+
+test('the router focus target draws no ring around the whole page', () => {
+  assert.match(css, /main\[tabindex='-1'\]:focus\s*\{\s*outline:\s*none;\s*\}/);
 });
