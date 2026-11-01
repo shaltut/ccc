@@ -12,7 +12,7 @@ import {
   resolveActor,
   type AppEnv,
 } from './actor.ts';
-import { broadcast, control, peekUnread, sendMessage, takeUnread, waitForUnread } from './messages.ts';
+import { broadcast, control, formatForAgent, peekUnread, sendMessage, takeUnread, waitForUnread } from './messages.ts';
 import {
   heartbeat,
   listSessions,
@@ -157,14 +157,15 @@ export function apiRoutes(sql: Sql, config: Config): Hono<AppEnv> {
   api.get('/inbox', async (c) => {
     const { session } = requireSession(c.get('actor'));
     const peek = c.req.query('peek') === '1';
-    return c.json({ messages: peek ? await peekUnread(sql, session.id) : await takeUnread(sql, session.id) });
+    const messages = peek ? await peekUnread(sql, session.id) : await takeUnread(sql, session.id);
+    return c.json({ messages, text: formatForAgent(messages) });
   });
 
   api.get('/inbox/wait', async (c) => {
     const { session } = requireSession(c.get('actor'));
     const timeoutMs = z.coerce.number().int().min(1000).max(30000).default(25000).parse(c.req.query('timeoutMs'));
     const messages = await waitForUnread(sql, session.id, timeoutMs, c.req.raw.signal);
-    return messages.length ? c.json({ messages }) : c.body(null, 204);
+    return messages.length ? c.json({ messages, text: formatForAgent(messages) }) : c.body(null, 204);
   });
 
   api.post('/messages', async (c) => {
