@@ -92,6 +92,8 @@ test('hook session-start prints resume text containing "ccc wait"', async () => 
   const r = await run(['hook', 'session-start'], { home: h, session: 'C3', input: hookInput({ session_id: 's3' }) });
   assert.equal(r.code, 0);
   assert.match(r.stdout, /ccc wait/);
+  // The agent's shell has no `ccc` on PATH: the hook names the exact command.
+  assert.match(r.stdout, /`ccc` means: node "[^"]+\/cli\/ccc\.mjs"/);
   const [row] = await t.sql`select claude_session_id from ccc.sessions where name = 'C3'`;
   assert.equal(row?.claudeSessionId, 's3');
 });

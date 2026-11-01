@@ -325,7 +325,7 @@ async function runHook(event) {
   try {
     if (event === 'session-start') {
       const r = await call('POST', '/api/sessions/register', { claudeSessionId: claudeSessionId ?? null, cwd: input.cwd ?? process.cwd() });
-      out(r.resume);
+      out(`${r.resume}\n\`ccc\` means: node "${selfPath()}"`);
     } else if (event === 'post-tool-use') {
       const marker = join(cccDir(), `hb-${safeId(claudeSessionId ?? name)}`);
       const last = await stat(marker).then((s) => s.mtimeMs, () => 0);
