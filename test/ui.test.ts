@@ -55,7 +55,7 @@ test('index served at /', async () => {
   const res = await t.app.request('/');
   assert.equal(res.status, 200);
   assert.match(res.headers.get('content-type') ?? '', /text\/html/);
-  assert.match(await res.text(), /<script type="module" src="\/app.js">/);
+  assert.match(await res.text(), /<script type="module" src="\/app\.js(\?v=\w+)?">/);
 });
 
 test('view modules are served as JavaScript', async () => {
@@ -153,4 +153,11 @@ test('static files must be revalidated, so a deploy is never mixed with cached o
     assert.equal(res.status, 200, path);
     assert.equal(res.headers.get('cache-control'), 'no-cache', path);
   }
+});
+
+test('index.html asks for the stylesheet and app by a versioned URL, so a stale edge copy is never used', async () => {
+  const html = await (await t.app.request('/')).text();
+  assert.match(html, /href="\/style\.css\?v=\w+"/);
+  assert.match(html, /src="\/app\.js\?v=\w+"/);
+  assert.equal((await t.app.request('/style.css?v=2')).status, 200);
 });
