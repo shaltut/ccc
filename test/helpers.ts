@@ -26,7 +26,10 @@ export const post = (body: unknown): RequestInit => ({
   body: JSON.stringify(body),
 });
 
-/** App over a fresh schema, driven through app.request (no network). */
+/**
+ * App over a fresh schema, driven through app.request (no network).
+ * Every call resets the shared `ccc` schema, so use one per test file (or only after the file's last use of the first).
+ */
 export async function testApp() {
   const sql = await testSql();
   const config: Config = {

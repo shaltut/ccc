@@ -3,7 +3,16 @@ import { deleteCookie, setCookie } from 'hono/cookie';
 import { z } from 'zod';
 import type { Sql } from './db.ts';
 import type { Config } from './config.ts';
-import { ADMIN_COOKIE, requireOwner, requireSession, resolveActor, type AppEnv } from './actor.ts';
+import {
+  actorName,
+  ADMIN_COOKIE,
+  requireOrchestrator,
+  requireOwner,
+  requireSession,
+  resolveActor,
+  type AppEnv,
+} from './actor.ts';
+import { broadcast, control, peekUnread, sendMessage, takeUnread, waitForUnread } from './messages.ts';
 import {
   heartbeat,
   listSessions,
@@ -13,6 +22,7 @@ import {
   resumeContext,
   retireSession,
   ROLES,
+  resolveAddress,
   SESSION_NAME,
   setRole,
 } from './sessions.ts';
@@ -148,6 +158,40 @@ export function apiRoutes(sql: Sql, config: Config): Hono<AppEnv> {
   });
 
   api.get('/sessions', async (c) => c.json({ sessions: await listSessions(sql) }));
+
+  const BODY = z.string().min(1).max(65536);
+  const address = z.string().min(1).max(64);
+
+  api.get('/inbox', async (c) => {
+    const { session } = requireSession(c.get('actor'));
+    const peek = c.req.query('peek') === '1';
+    return c.json({ messages: peek ? await peekUnread(sql, session.id) : await takeUnread(sql, session.id) });
+  });
+
+  api.get('/inbox/wait', async (c) => {
+    const { session } = requireSession(c.get('actor'));
+    const timeoutMs = z.coerce.number().int().min(1000).max(30000).default(25000).parse(c.req.query('timeoutMs'));
+    const messages = await waitForUnread(sql, session.id, timeoutMs, c.req.raw.signal);
+    return messages.length ? c.json({ messages }) : c.body(null, 204);
+  });
+
+  api.post('/messages', async (c) => {
+    const actor = c.get('actor');
+    const m = await body(c, z.object({ to: address, body: BODY, kind: z.enum(['note', 'instruction']).default('note') }));
+    if (m.kind === 'instruction') requireOrchestrator(actor);
+    const to = await resolveAddress(sql, m.to);
+    return c.json({ message: await sendMessage(sql, { from: actorName(actor), to, kind: m.kind, body: m.body }) });
+  });
+
+  api.post('/broadcast', async (c) => {
+    const { body: text } = await body(c, z.object({ body: BODY }));
+    return c.json({ count: await broadcast(sql, c.get('actor'), text) });
+  });
+
+  api.post('/control', async (c) => {
+    const r = await body(c, z.object({ target: address, action: z.enum(['pause', 'resume']) }));
+    return c.json({ count: await control(sql, c.get('actor'), r.target, r.action) });
+  });
 
   api.post('/admin/sessions/:name/role', async (c) => {
     requireOwner(c.get('actor'));
