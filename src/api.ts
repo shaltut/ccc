@@ -1,5 +1,6 @@
 import { Hono, type Context } from 'hono';
 import { deleteCookie, setCookie } from 'hono/cookie';
+import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
 import type { Sql } from './db.ts';
 import type { Config } from './config.ts';
@@ -35,6 +36,7 @@ import {
   revokeDevice,
 } from './auth.ts';
 import { httpError } from './errors.ts';
+import { bus, listEvents, type BusEvent } from './events.ts';
 import { body } from './http.ts';
 import { mountWorkRoutes } from './work-routes.ts';
 
@@ -195,6 +197,34 @@ export function apiRoutes(sql: Sql, config: Config): Hono<AppEnv> {
   api.post('/admin/sessions/:name/retire', async (c) => {
     requireOwner(c.get('actor'));
     return c.json({ session: await retireSession(sql, nameParam(c)) });
+  });
+
+  api.get('/events', async (c) => {
+    requireOwner(c.get('actor'));
+    const q = z
+      .object({ session: z.string().regex(SESSION_NAME).optional(), limit: z.coerce.number().int().min(1).max(500).default(100) })
+      .parse(c.req.query());
+    return c.json({ events: await listEvents(sql, { ...(q.session ? { sessionName: q.session } : {}), limit: q.limit }) });
+  });
+
+  api.get('/stream', (c) => {
+    requireOwner(c.get('actor'));
+    return streamSSE(c, async (stream) => {
+      const onEvent = (e: BusEvent) => {
+        void stream.writeSSE({ event: 'ccc', data: JSON.stringify({ type: e.type, sessionName: e.sessionName }) });
+      };
+      bus.on('event', onEvent);
+      stream.onAbort(() => {
+        bus.off('event', onEvent);
+      });
+      await stream.writeSSE({ event: 'ready', data: '{}' });
+      // Comment pings keep reverse proxies from closing an idle stream.
+      while (!stream.aborted) {
+        await stream.sleep(25_000);
+        if (!stream.aborted) await stream.write(': keepalive\n\n');
+      }
+      bus.off('event', onEvent);
+    });
   });
 
   mountWorkRoutes(api, sql);
