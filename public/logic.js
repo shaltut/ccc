@@ -45,7 +45,7 @@ export function countByStatus(sessions) {
   return counts;
 }
 
-/** `#/<view>?project=&status=` or `#/session/<name>?project=`. Anything invalid falls back to the board. */
+/** `#/<view>?project=&status=` or `#/session/<name>?project=&status=`. Anything invalid falls back to the board. */
 export function parseRoute(hash) {
   const raw = String(hash ?? '').replace(/^#\/?/, '');
   const [path = '', query = ''] = raw.split('?');
@@ -65,17 +65,31 @@ export function parseRoute(hash) {
     route.view = head;
   }
   const status = params.get('status') ?? '';
-  if (route.view === 'board' && !route.session && STATUSES.includes(status)) route.status = status;
+  // A session route is the board with a drawer over it, so it keeps the board's filter.
+  if (route.view === 'board' && STATUSES.includes(status)) route.status = status;
   return route;
 }
 
 export function formatRoute({ view = 'board', project = '', status = '', session = '' } = {}) {
   const params = new URLSearchParams();
   if (project) params.set('project', project);
-  if (status && view === 'board' && !session) params.set('status', status);
+  if (status && view === 'board') params.set('status', status);
   const query = params.toString();
   const path = session ? `session/${encodeURIComponent(session)}` : view;
   return `#/${path}${query ? `?${query}` : ''}`;
+}
+
+/**
+ * Wraps an async function so only the most recent call's result counts: it resolves to `{ value }`,
+ * and an older call that finishes later resolves to null. Stops a slow response overwriting a newer one.
+ */
+export function latestOnly(fn) {
+  let seq = 0;
+  return async (...args) => {
+    const mine = ++seq;
+    const value = await fn(...args);
+    return mine === seq ? { value } : null;
+  };
 }
 
 export function isTypingTarget(el) {

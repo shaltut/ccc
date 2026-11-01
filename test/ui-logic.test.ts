@@ -57,7 +57,7 @@ test('parseRoute falls back safely on garbage', () => {
     ['#/board?project=has%20space', board],
     ['#/board?status=bogus', board],
     ['#/tasks?status=blocked', { ...board, view: 'tasks' }],
-    ['#/session/W2?status=blocked', { ...board, session: 'W2' }],
+    ['#/session/W2?status=blocked', { ...board, session: 'W2', status: 'blocked' }],
   ];
   for (const [hash, expected] of cases) assert.deepEqual(L.parseRoute(hash), expected, hash);
 });
@@ -135,4 +135,22 @@ test('filterTasks filters, then orders blocked → in progress → not started, 
   assert.deepEqual(ids('bogus'), [2, 4, 6, 1]);
   assert.equal(L.isOpenTask({ status: 'blocked' }), true);
   assert.equal(L.isOpenTask({ status: 'done' }), false);
+});
+
+test('a session route keeps the board status filter behind the drawer', () => {
+  const r = { view: 'board', project: 'ihop', status: 'blocked', session: 'W2' };
+  assert.equal(L.formatRoute(r), '#/session/W2?project=ihop&status=blocked');
+  assert.deepEqual(L.parseRoute('#/session/W2?project=ihop&status=blocked'), r);
+  assert.equal(L.parseRoute('#/session/W2?status=nonsense').status, '');
+});
+
+test('latestOnly drops a slower, older call so it cannot overwrite a newer one', async () => {
+  const resolvers: Array<(v: string) => void> = [];
+  const fetchIt = L.latestOnly(() => new Promise<string>((r) => resolvers.push(r)));
+  const older = fetchIt();
+  const newer = fetchIt();
+  resolvers[1]!('new');
+  resolvers[0]!('old');
+  assert.deepEqual(await newer, { value: 'new' });
+  assert.equal(await older, null);
 });

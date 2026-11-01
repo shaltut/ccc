@@ -105,7 +105,7 @@ test('project picker: remembered safely, falls back to All when its project is g
   const src = await readFile(new URL('app.js', PUBLIC), 'utf8');
   assert.match(src, /api\('GET', '\/api\/projects'\)/);
   assert.match(src, /try \{\s*return localStorage\.getItem\(PROJECT_KEY\)/);
-  assert.match(src, /state\.project && !state\.projects\.some\(\(p\) => p\.name === state\.project\)/);
+  assert.match(src, /project && projects\.some\(\(p\) => p\.name === project\) \? project : ''/);
   // The move-to-project call lives in app.js or a view module, wherever Controls is rendered.
   const all = (await Promise.all((await jsFiles()).map((f) => readFile(f, 'utf8')))).join('\n');
   assert.match(all, /\/project`, \{ project \}/);
@@ -127,7 +127,9 @@ test('queued answers have an undo window and guard against closing the page', as
 });
 test('a changed select or an open row menu also counts as a draft', async () => {
   const src = await readFile(new URL('app.js', PUBLIC), 'utf8');
-  assert.match(src, /#view \[data-dirty\], #view details\.menu\[open\]/);
+  assert.match(src, /#view \[data-dirty\], #detail \[data-dirty\], #view details\.menu\[open\]/);
+  // Any select the owner changes, in the page or the drawer, is marked dirty.
+  assert.match(src, /e\.target instanceof HTMLSelectElement\) e\.target\.dataset\.dirty = 'true'/);
   const tasks = await readFile(new URL('views/tasks.js', PUBLIC), 'utf8');
   assert.match(tasks, /export function tasksView\(ctx\)/);
 });

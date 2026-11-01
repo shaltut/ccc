@@ -1,5 +1,5 @@
 import { h, mount, api, debounce, Unauthorized } from './dom.js';
-import { NEEDS_YOU, isOpenTask, parseRoute, formatRoute, isTypingTarget, resolveKey } from './logic.js';
+import { NEEDS_YOU, isOpenTask, parseRoute, formatRoute, isTypingTarget, resolveKey, latestOnly } from './logic.js';
 import { boardView } from './views/board.js';
 import { questionsView } from './views/questions.js';
 import { tasksView } from './views/tasks.js';
@@ -33,9 +33,10 @@ const state = {
   newToken: null,
   taskFilter: 'open',
   pending: new Map(),
+  // Typed answers by textarea id. They outlive a remount, so queueing, Undo or a failed send never loses them.
+  drafts: new Map(),
 };
 /** Adds ?project= when one project is selected; '' means all projects. */
-const scoped = (path) => (state.project ? `${path}${path.includes('?') ? '&' : '?'}project=${encodeURIComponent(state.project)}` : path);
 const inProject = () => (state.project ? { project: state.project } : {});
 const view = document.getElementById('view');
 const dialog = document.getElementById('detail');
@@ -67,11 +68,12 @@ function toast(message, isError = false, action = null) {
 
 window.addEventListener('beforeunload', (e) => { if (state.pending.size) e.preventDefault(); });
 
-async function act(fn, done) {
+/** `live: true` makes the follow-up refresh wait for open drafts, for actions the owner did not just take (a timer). */
+async function act(fn, done, { live = false } = {}) {
   try {
     await fn();
     if (done) toast(done);
-    await refresh();
+    await refresh({ live });
   } catch (err) {
     if (err instanceof Unauthorized) return showLogin();
     toast(errorText(err), true);
@@ -82,45 +84,58 @@ const deviceLabel = (id) => state.devices.find((d) => d.id === id)?.label ?? 'â€
 const liveSessions = () => state.sessions.filter((s) => !s.retiredAt && (!state.project || s.project === state.project));
 const openQuestions = () => state.questions.filter((q) => q.status === 'open');
 
-async function load() {
-  const projects = await api('GET', '/api/projects');
-  state.projects = projects.projects;
+async function fetchAll(project) {
+  const { projects } = await api('GET', '/api/projects');
   // A remembered or linked project with nothing left in it: show everything rather than an empty board.
-  if (state.project && !state.projects.some((p) => p.name === state.project)) {
+  const scope = project && projects.some((p) => p.name === project) ? project : '';
+  const inScope = (path) => (scope ? `${path}?project=${encodeURIComponent(scope)}` : path);
+  const [sessions, questions, tasks, devices] = await Promise.all([
+    api('GET', '/api/sessions'),
+    api('GET', inScope('/api/questions')),
+    api('GET', inScope('/api/tasks')),
+    api('GET', '/api/admin/devices'),
+  ]);
+  return { project, scope, projects, sessions: sessions.sessions, questions: questions.questions, tasks: tasks.tasks, devices: devices.devices };
+}
+const fetchLatest = latestOnly(fetchAll);
+
+/** Loads everything for the current project. False when a newer load overtook this one, or the project changed meanwhile. */
+async function load() {
+  const got = await fetchLatest(state.project);
+  if (!got || got.value.project !== state.project) return false;
+  const d = got.value;
+  state.projects = d.projects;
+  if (d.scope !== state.project) {
     state.project = '';
     saveProject('');
     history.replaceState(null, '', formatRoute(currentRoute()));
   }
-  const [sessions, questions, tasks, devices] = await Promise.all([
-    api('GET', '/api/sessions'),
-    api('GET', scoped('/api/questions')),
-    api('GET', scoped('/api/tasks')),
-    api('GET', '/api/admin/devices'),
-  ]);
-  state.sessions = sessions.sessions;
-  state.questions = questions.questions;
-  state.tasks = tasks.tasks;
-  state.devices = devices.devices;
+  state.sessions = d.sessions;
+  state.questions = d.questions;
+  state.tasks = d.tasks;
+  state.devices = d.devices;
+  return true;
 }
 
 /** True while the owner has unsent input: typed text, a changed select, or an open row menu. A remount would lose it. */
 function hasDraft() {
-  const typed = [...document.querySelectorAll('#view textarea, #view input:not([type=password]), #detail textarea')].some(
+  const typed = [...document.querySelectorAll('#view textarea, #view input:not([type=password]):not([readonly]), #detail textarea')].some(
     (el) => el.value.trim() !== '',
   );
-  return typed || document.querySelector('#view [data-dirty], #view details.menu[open]') !== null;
+  return typed || document.querySelector('#view [data-dirty], #detail [data-dirty], #view details.menu[open]') !== null;
 }
 
 /** Owner actions remount at once; live updates (`live: true`) wait until no draft is open. */
 async function refresh({ live = false } = {}) {
   try {
-    await load();
+    if (!(await load())) return; // a newer load will render
   } catch (err) {
     if (err instanceof Unauthorized) return showLogin();
     toast(errorText(err), true);
     return;
   }
-  if (live && hasDraft()) return;
+  // The sidebar is outside #view, so it stays current even while a draft holds the page still.
+  if (live && hasDraft()) return renderNav();
   render();
   if (dialog.open && state.detail) await renderDetail(state.detail);
 }
@@ -165,10 +180,29 @@ function renderNav() {
   );
 }
 
+/** A selector that finds the focused control again after a remount, or null. */
+function focusKey() {
+  const el = document.activeElement;
+  if (!el || el === view || !view.contains(el)) return null;
+  if (el.matches('.srow[data-name]')) return `.srow[data-name="${CSS.escape(el.dataset.name)}"]`;
+  if (el.matches('.stat[data-status]')) return `.stat[data-status="${CSS.escape(el.dataset.status)}"]`;
+  return el.id ? `#${CSS.escape(el.id)}` : null;
+}
+
 function render() {
   renderNav();
+  for (const el of view.querySelectorAll('textarea[id^="ans-"]')) state.drafts.set(el.id, el.value);
+  const key = focusKey();
   const views = { board: boardView, questions: questionsView, tasks: tasksView, controls: controlsView };
   mount(view, views[state.tab](ctx));
+  if (key) view.querySelector(key)?.focus({ preventScroll: true });
+}
+
+// A changed select is a draft too: a remount would silently put it back (e.g. Broadcast scope â†’ All projects).
+for (const root of [view, dialog]) {
+  root.addEventListener('change', (e) => {
+    if (e.target instanceof HTMLSelectElement) e.target.dataset.dirty = 'true';
+  });
 }
 
 // ---------- routing ----------

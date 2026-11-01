@@ -12,11 +12,16 @@ function undoAnswer(ctx, id) {
   ctx.toast(`Answer to Q${id} cancelled`);
 }
 
-/** Holds the answer for UNDO_MS, then sends it. Undo cancels it before anything reaches the server. */
+/**
+ * Holds the answer for UNDO_MS, then sends it. Undo cancels it before anything reaches the server.
+ * Other answers being typed survive every step: render() keeps answer drafts, and the send's own refresh is
+ * `live`, so it waits for open drafts. A failed send drops back to the form with the typed text still in it.
+ */
 function queueAnswer(ctx, q, payload, label) {
-  const timer = setTimeout(() => {
+  const timer = setTimeout(async () => {
+    await ctx.act(() => api('POST', `/api/questions/${q.id}/answer`, payload), `Answered Q${q.id}`, { live: true });
     ctx.state.pending.delete(q.id);
-    void ctx.act(() => api('POST', `/api/questions/${q.id}/answer`, payload), `Answered Q${q.id}`);
+    if (ctx.state.tab === 'questions') ctx.render();
   }, UNDO_MS);
   ctx.state.pending.set(q.id, { timer, label });
   ctx.render();
@@ -36,6 +41,7 @@ function answerForm(ctx, q) {
     rows: 2,
     maxlength: 65536,
     placeholder: 'e.g. Use the staging creds in 1Password…',
+    value: ctx.state.drafts.get(id) ?? null,
     onkeydown: (e) => {
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
