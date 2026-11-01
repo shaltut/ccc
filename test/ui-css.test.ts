@@ -44,3 +44,7 @@ test('board rows truncate long text instead of widening the layout', () => {
   assert.match(css, /\.srow \.summary\s*\{[^}]*min-width:\s*0[^}]*text-overflow:\s*ellipsis/);
   assert.match(css, /\.srow \.name\s*\{[^}]*text-overflow:\s*ellipsis/);
 });
+test('the session detail is a right-hand drawer', () => {
+  assert.match(css, /\.drawer\s*\{[^}]*margin:\s*0 0 0 auto[^}]*height:\s*100dvh/);
+  assert.match(css, /\.drawer\[open\]\s*\{[^}]*animation:\s*slide-in/);
+});

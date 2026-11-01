@@ -95,3 +95,18 @@ export function debounce(fn, ms) {
     timer = setTimeout(fn, ms);
   };
 }
+
+/** Disables a button and swaps its label while `run` is in flight; restores it if still on the page. */
+export async function busy(button, label, run) {
+  const idle = button.textContent;
+  button.disabled = true;
+  button.textContent = label;
+  try {
+    await run();
+  } finally {
+    if (button.isConnected) {
+      button.disabled = false;
+      button.textContent = idle;
+    }
+  }
+}

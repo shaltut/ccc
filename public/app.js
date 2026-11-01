@@ -1,15 +1,7 @@
 import { h, mount, api, ago, minutesSince, confirmButton, debounce, Unauthorized } from './dom.js';
 import { boardView } from './views/board.js';
+import { renderDetail as drawDetail } from './views/detail.js';
 
-const STATUS_LABEL = {
-  working: 'Working',
-  idle: 'Idle',
-  waiting_permission: 'Waiting for permission',
-  blocked: 'Blocked',
-  paused: 'Paused',
-  unreachable: 'Unreachable',
-  offline: 'Offline',
-};
 const ROLES = ['orchestrator', 'worker', 'helper', 'auditor', 'other'];
 const TASK_GROUPS = [
   ['blocked', 'Blocked'],
@@ -185,97 +177,28 @@ function showLogin() {
 
 // ---------- session detail ----------
 
-function describeEvent(e) {
-  const p = e.payload ?? {};
-  switch (e.type) {
-    case 'message':
-      return `${p.kind} from ${p.from}`;
-    case 'status':
-      return `${STATUS_LABEL[p.status] ?? p.status}${p.workingOn ? `: ${p.workingOn}` : ''}${p.blocker ? ` (blocker: ${p.blocker})` : ''}`;
-    case 'task_created':
-    case 'task_updated':
-    case 'task_reassigned':
-    case 'task_cancelled':
-      return `${e.type.replace('task_', 'task ')} T${p.taskId} ${p.title} [${p.status}]`;
-    case 'register':
-      return `registered as ${p.assignedName}`;
-    case 'takeover':
-      return 'a newer process took over this name';
-    case 'idle_ping':
-      return 'pinged after an hour without activity';
-    case 'unreachable':
-      return 'no heartbeat for 15 min';
-    default:
-      return `${e.type.replaceAll('_', ' ')}${Object.keys(p).length ? ` ${JSON.stringify(p)}` : ''}`;
-  }
-}
+let lastFocus = null;
+const renderDetail = (name) => drawDetail(ctx, dialog, name);
 
-function openDetail(name) {
+function showDetail(name) {
   state.detail = name;
-  void renderDetail(name).then(() => {
-    if (!dialog.open) dialog.showModal();
+  void renderDetail(name).then((ok) => {
+    if (ok && state.detail === name && !dialog.open) dialog.showModal();
+    if (!ok) state.detail = null;
   });
 }
 
-async function renderDetail(name) {
-  const s = state.sessions.find((x) => x.name === name);
-  if (!s) {
-    dialog.close();
-    return;
-  }
-  let events = [];
-  try {
-    events = (await api('GET', `/api/events?session=${encodeURIComponent(name)}&limit=60`)).events;
-  } catch (err) {
-    toast(err.message, true);
-  }
-  const body = h('textarea', { rows: 3, required: true, maxlength: 65536, 'aria-label': 'Message' });
-  const kind = h('select', { 'aria-label': 'Message kind' }, h('option', { value: 'instruction' }, 'Instruction'), h('option', { value: 'note' }, 'Note'));
-  mount(
-    dialog,
-    h(
-      'div',
-      { class: 'detail' },
-      h(
-        'div',
-        { class: 'detail-head' },
-        h('h2', { id: 'detail-title' }, s.name),
-        h('span', { class: 'project' }, s.project),
-        h('span', { class: `pill s-${s.status}` }, STATUS_LABEL[s.status]),
-        h('button', { type: 'button', class: 'quiet close', onclick: () => dialog.close() }, 'Close'),
-      ),
-      h('p', { class: 'doing', dir: 'auto' }, s.workingOn || 'No status reported yet'),
-      s.blocker ? h('p', { class: 'blocker', dir: 'auto' }, s.blocker) : null,
-      h(
-        'div',
-        { class: 'row' },
-        s.paused || s.pausePending
-          ? h('button', { type: 'button', onclick: () => act(() => api('POST', '/api/control', { target: s.name, action: 'resume' }), `Resume sent to ${s.name}`) }, 'Resume')
-          : h('button', { type: 'button', onclick: () => act(() => api('POST', '/api/control', { target: s.name, action: 'pause' }), `Pause sent to ${s.name}`) }, 'Pause'),
-      ),
-      h(
-        'form',
-        {
-          class: 'send',
-          onsubmit: (e) => {
-            e.preventDefault();
-            void act(() => api('POST', '/api/messages', { to: s.name, body: body.value, kind: kind.value }), `Sent to ${s.name}; it lands when the current turn ends`);
-          },
-        },
-        h('label', null, `Message ${s.name}`),
-        body,
-        h('div', { class: 'row' }, kind, h('button', { type: 'submit', class: 'primary' }, 'Send')),
-      ),
-      h('h3', null, 'Timeline'),
-      events.length
-        ? h('ol', { class: 'timeline' }, events.map((e) => h('li', null, h('time', null, ago(e.createdAt)), h('span', null, describeEvent(e)))))
-        : h('p', { class: 'empty' }, 'Nothing recorded yet.'),
-    ),
-  );
+function openDetail(name) {
+  lastFocus = document.activeElement;
+  showDetail(name);
 }
 
 dialog.addEventListener('close', () => {
+  const name = state.detail;
   state.detail = null;
+  const back = lastFocus?.isConnected ? lastFocus : name ? view.querySelector(`.srow[data-name="${CSS.escape(name)}"]`) : null;
+  back?.focus();
+  lastFocus = null;
 });
 
 // ---------- questions ----------

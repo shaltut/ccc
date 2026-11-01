@@ -112,3 +112,8 @@ test('project picker: remembered safely, falls back to All when its project is g
   const html = await readFile(new URL('index.html', PUBLIC), 'utf8');
   assert.match(html, /<select id="project"/);
 });
+test('the detail view is its own module', async () => {
+  const src = await readFile(new URL('views/detail.js', PUBLIC), 'utf8');
+  assert.match(src, /export async function renderDetail\(ctx, dialog, name\)/);
+  assert.match(src, /export function describeEvent\(/);
+});
