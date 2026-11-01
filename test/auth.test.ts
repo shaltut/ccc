@@ -124,3 +124,9 @@ test('parallel wrong logins cannot exceed the limit', async () => {
     await fresh.sql.end();
   }
 });
+
+test('logout expires the admin cookie', async () => {
+  const res = await t.app.request('/api/admin/logout', json({}));
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('set-cookie') ?? '', /ccc_admin=;.*Max-Age=0/);
+});

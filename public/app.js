@@ -322,6 +322,17 @@ function showKeys() {
 
 document.getElementById('keys-open').addEventListener('click', showKeys);
 
+document.getElementById('sign-out').addEventListener('click', async () => {
+  if (state.pending.size) return toast('An answer is still sending. Sign out once it has gone, or undo it.', true);
+  try {
+    await api('POST', '/api/admin/logout', {});
+  } catch (err) {
+    if (!(err instanceof Unauthorized)) return toast(errorText(err), true);
+  }
+  state.newToken = null; // a freshly minted device token must not reappear for the next person to sign in
+  showLogin();
+});
+
 function moveRow(delta) {
   if (state.tab !== 'board') return;
   const rows = [...view.querySelectorAll('.srow')];

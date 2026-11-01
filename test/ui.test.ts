@@ -161,3 +161,12 @@ test('index.html asks for the stylesheet and app by a versioned URL, so a stale 
   assert.match(html, /src="\/app\.js\?v=\w+"/);
   assert.equal((await t.app.request('/style.css?v=2')).status, 200);
 });
+
+test('a Sign out button ends the session and returns to the sign-in form', async () => {
+  const html = await readFile(new URL('index.html', PUBLIC), 'utf8');
+  assert.match(html, /<button type="button"[^>]*id="sign-out"[^>]*>Sign out<\/button>/);
+  const app = await readFile(new URL('app.js', PUBLIC), 'utf8');
+  assert.match(app, /api\('POST', '\/api\/admin\/logout'/);
+  // An answer still in its undo window would be lost, so signing out waits for it.
+  assert.match(app, /if \(state\.pending\.size\)[^\n]*toast\(/);
+});
