@@ -3,7 +3,7 @@ import { getCookie } from 'hono/cookie';
 import type { Sql } from './db.ts';
 import type { Config } from './config.ts';
 import { deviceFromBearer, verifyAdminCookie, type Device } from './auth.ts';
-import { ensureSession, isSuperseded, ownedName, SESSION_NAME, type Session } from './sessions.ts';
+import { ensureSession, isSuperseded, normalizeProject, ownedName, SESSION_NAME, type Session } from './sessions.ts';
 import { httpError } from './errors.ts';
 
 export type Actor =
@@ -11,7 +11,7 @@ export type Actor =
   | { kind: 'session'; session: Session; deviceId: string; claudeSessionId: string | null };
 
 export type AppEnv = {
-  Variables: { actor: Actor; device: Device | null; sessionName: string | null; claudeSessionId: string | null };
+  Variables: { actor: Actor; device: Device | null; sessionName: string | null; claudeSessionId: string | null; project: string };
 };
 
 export const ADMIN_COOKIE = 'ccc_admin';
@@ -38,12 +38,14 @@ export function resolveActor(sql: Sql, config: Config): MiddlewareHandler<AppEnv
     if (!name) throw httpError(400, 'session_header_required', 'X-CCC-Session header is required');
     if (!SESSION_NAME.test(name)) throw httpError(400, 'validation_error', 'Invalid session name');
     const claudeSessionId = c.req.header('x-ccc-claude-session') ?? null;
+    const project = normalizeProject(c.req.header('x-ccc-project'));
+    c.set('project', project);
     c.set('device', device);
     c.set('sessionName', name);
     c.set('claudeSessionId', claudeSessionId);
     if (c.req.path === REGISTER_PATH) return next();
     const own = claudeSessionId ? await ownedName(sql, name, claudeSessionId) : name;
-    const session = await ensureSession(sql, own, device.id);
+    const session = await ensureSession(sql, own, device.id, project);
     if (isSuperseded(session, claudeSessionId)) {
       throw httpError(409, 'superseded', `Another process has taken over session ${name}`);
     }

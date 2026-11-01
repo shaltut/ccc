@@ -50,7 +50,7 @@ export async function testApp() {
   };
 
   const agent =
-    (token: string, name: string, claudeSessionId?: string): Fetch =>
+    (token: string, name: string, claudeSessionId?: string, project?: string): Fetch =>
     async (path, init) =>
       app.request(
         path,
@@ -58,6 +58,7 @@ export async function testApp() {
           authorization: `Bearer ${token}`,
           'x-ccc-session': name,
           ...(claudeSessionId ? { 'x-ccc-claude-session': claudeSessionId } : {}),
+          ...(project ? { 'x-ccc-project': project } : {}),
         }),
       );
 

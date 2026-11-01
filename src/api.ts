@@ -17,7 +17,9 @@ import {
 import { broadcast, control, formatForAgent, peekUnread, sendMessage, takeUnread, waitForUnread } from './messages.ts';
 import {
   heartbeat,
+  listProjects,
   listSessions,
+  moveSession,
   registerSession,
   REPORTABLE_STATUSES,
   reportStatus,
@@ -38,7 +40,7 @@ import {
 } from './auth.ts';
 import { httpError } from './errors.ts';
 import { bus, listEvents, type BusEvent } from './events.ts';
-import { body } from './http.ts';
+import { body, PROJECT } from './http.ts';
 import { mountWorkRoutes } from './work-routes.ts';
 
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -100,6 +102,8 @@ export function apiRoutes(sql: Sql, config: Config): Hono<AppEnv> {
 
   const text = (max: number) => z.string().max(max);
   const nameParam = (c: Context) => z.string().regex(SESSION_NAME).parse(c.req.param('name'));
+  /** Agents are always confined to their own project; the owner may filter with ?project=. */
+  const scoped = (c: Context<AppEnv>) => scopeProject(c.get('actor')) ?? PROJECT.optional().parse(c.req.query('project'));
 
   api.post('/sessions/register', async (c) => {
     const device = c.get('device');
@@ -118,6 +122,7 @@ export function apiRoutes(sql: Sql, config: Config): Hono<AppEnv> {
       deviceId: device.id,
       claudeSessionId: input.claudeSessionId ?? c.get('claudeSessionId'),
       cwd: input.cwd ?? null,
+      project: c.get('project'),
       ...(input.role ? { role: input.role } : {}),
     });
     return c.json({ ...result, resume: await resumeContext(sql, result.session) });
@@ -153,7 +158,8 @@ export function apiRoutes(sql: Sql, config: Config): Hono<AppEnv> {
     return c.json({ ok: true });
   });
 
-  api.get('/sessions', async (c) => c.json({ sessions: await listSessions(sql) }));
+  api.get('/sessions', async (c) => c.json({ sessions: await listSessions(sql, scoped(c)) }));
+  api.get('/projects', async (c) => c.json({ projects: await listProjects(sql, scoped(c)) }));
 
   const BODY = z.string().min(1).max(65536);
   const address = z.string().min(1).max(64);
@@ -181,9 +187,12 @@ export function apiRoutes(sql: Sql, config: Config): Hono<AppEnv> {
 
   api.post('/messages', async (c) => {
     const actor = c.get('actor');
-    const m = await body(c, z.object({ to: address, body: BODY, kind: z.enum(['note', 'instruction']).default('note') }));
+    const m = await body(
+      c,
+      z.object({ to: address, body: BODY, kind: z.enum(['note', 'instruction']).default('note'), project: PROJECT.optional() }),
+    );
     if (m.kind === 'instruction') requireOrchestrator(actor);
-    const to = await resolveAddress(sql, m.to, scopeProject(actor));
+    const to = await resolveAddress(sql, m.to, scopeProject(actor) ?? m.project);
     return c.json({ message: await sendMessage(sql, { from: actorName(actor), to, kind: m.kind, body: m.body }) });
   });
 
@@ -206,6 +215,12 @@ export function apiRoutes(sql: Sql, config: Config): Hono<AppEnv> {
   api.post('/admin/sessions/:name/retire', async (c) => {
     requireOwner(c.get('actor'));
     return c.json({ session: await retireSession(sql, nameParam(c)) });
+  });
+
+  api.post('/admin/sessions/:name/project', async (c) => {
+    requireOwner(c.get('actor'));
+    const { project } = await body(c, z.object({ project: PROJECT }));
+    return c.json({ session: await moveSession(sql, nameParam(c), project) });
   });
 
   api.get('/events', async (c) => {
