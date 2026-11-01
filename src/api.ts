@@ -35,16 +35,8 @@ import {
   revokeDevice,
 } from './auth.ts';
 import { httpError } from './errors.ts';
-
-export async function body<T extends z.ZodType>(c: Context, schema: T): Promise<z.infer<T>> {
-  let raw: unknown;
-  try {
-    raw = await c.req.json();
-  } catch {
-    throw httpError(400, 'invalid_json', 'Request body must be JSON');
-  }
-  return schema.parse(raw);
-}
+import { body } from './http.ts';
+import { mountWorkRoutes } from './work-routes.ts';
 
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -203,6 +195,8 @@ export function apiRoutes(sql: Sql, config: Config): Hono<AppEnv> {
     requireOwner(c.get('actor'));
     return c.json({ session: await retireSession(sql, nameParam(c)) });
   });
+
+  mountWorkRoutes(api, sql);
 
   return api;
 }
