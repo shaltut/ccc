@@ -65,6 +65,8 @@ $env:CCC_SESSION = 'W1'; claude
 CCC_SESSION=W1 claude
 ```
 
+Optional: `CCC_ROLE` (`worker`, `helper`, `auditor` or `other`) requests a role the first time a name registers. Only the owner grants `orchestrator`.
+
 If two live processes use the same name, the newcomer gets `W1-2`. If the old holder has been silent for 2 minutes, the new process takes over the name, and the old process is told to stop.
 
 ## How messages reach a session
