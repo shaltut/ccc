@@ -1,6 +1,7 @@
 import { h, mount, api, ago, minutesSince, confirmButton, debounce, Unauthorized } from './dom.js';
 import { boardView } from './views/board.js';
 import { renderDetail as drawDetail } from './views/detail.js';
+import { questionsView } from './views/questions.js';
 
 const ROLES = ['orchestrator', 'worker', 'helper', 'auditor', 'other'];
 const TASK_GROUPS = [
@@ -25,7 +26,7 @@ function saveProject(p) {
     localStorage.setItem(PROJECT_KEY, p);
   } catch {}
 }
-const state = { tab: 'board', project: readProject(), status: '', projects: [], sessions: [], devices: [], questions: [], tasks: [], detail: null, newToken: null };
+const state = { tab: 'board', project: readProject(), status: '', pending: new Map(), projects: [], sessions: [], devices: [], questions: [], tasks: [], detail: null, newToken: null };
 /** Adds ?project= when one project is selected; '' means all projects. */
 const scoped = (path) => (state.project ? `${path}${path.includes('?') ? '&' : '?'}project=${encodeURIComponent(state.project)}` : path);
 const inProject = () => (state.project ? { project: state.project } : {});
@@ -34,14 +35,23 @@ const dialog = document.getElementById('detail');
 
 // ---------- plumbing ----------
 
-function toast(message, isError = false) {
+/** One toast at a time. `action` ({ label, run }) adds a button and keeps it up for 5 s. */
+function toast(message, isError = false, action = null) {
   const el = document.getElementById('toast');
-  el.textContent = message;
+  mount(
+    el,
+    h('span', null, message),
+    action
+      ? h('button', { type: 'button', class: 'small', onclick: () => { el.classList.remove('show'); action.run(); } }, action.label)
+      : null,
+  );
   el.classList.toggle('error', isError);
   el.classList.add('show');
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => el.classList.remove('show'), 3500);
+  toast.timer = setTimeout(() => el.classList.remove('show'), action ? 5000 : 3500);
 }
+
+window.addEventListener('beforeunload', (e) => { if (state.pending.size) e.preventDefault(); });
 
 async function act(fn, done) {
   try {
@@ -137,7 +147,7 @@ function render() {
     if (b.dataset.tab === state.tab) b.setAttribute('aria-current', 'page');
     else b.removeAttribute('aria-current');
   }
-  const views = { board: () => boardView(ctx), questions: questionsView, tasks: tasksView, controls: controlsView };
+  const views = { board: () => boardView(ctx), questions: () => questionsView(ctx), tasks: tasksView, controls: controlsView };
   mount(view, views[state.tab]());
 }
 
@@ -200,63 +210,6 @@ dialog.addEventListener('close', () => {
   back?.focus();
   lastFocus = null;
 });
-
-// ---------- questions ----------
-
-function questionCard(q) {
-  const overdue = q.status === 'open' && q.isBlocking && minutesSince(q.createdAt) > OVERDUE_MIN;
-  const text = h('textarea', { rows: 2, maxlength: 65536, 'aria-label': `Answer Q${q.id}` });
-  const answer = (choice) =>
-    act(() => api('POST', `/api/questions/${q.id}/answer`, { ...(choice ? { choice } : {}), ...(text.value.trim() ? { text: text.value } : {}) }), `Answered Q${q.id}`);
-  const to = q.addressedTo === 'role:orchestrator' ? 'orchestrator' : q.addressedTo;
-  return h(
-    'article',
-    { class: `question${q.isBlocking ? ' blocking' : ''}${overdue ? ' overdue' : ''}` },
-    h(
-      'header',
-      null,
-      h('span', { class: 'qid' }, `Q${q.id}`),
-      h('span', null, `${q.askedBy} asks ${to}`),
-      h('span', { class: 'meta' }, ago(q.createdAt)),
-      q.isBlocking ? h('span', { class: 'flag alert' }, overdue ? 'Blocking, over 30 min' : 'Blocking') : null,
-    ),
-    h('p', { class: 'qbody', dir: 'auto' }, q.body),
-    q.context ? h('details', null, h('summary', null, 'Context'), h('p', { class: 'qbody', dir: 'auto' }, q.context)) : null,
-    q.status === 'open'
-      ? h(
-          'div',
-          { class: 'answer' },
-          q.options?.length
-            ? h('div', { class: 'choices' }, q.options.map((o) => h('button', { type: 'button', class: 'choice', onclick: () => answer(o.key) }, o.label)))
-            : null,
-          text,
-          h(
-            'div',
-            { class: 'row' },
-            h('button', { type: 'button', class: 'primary', onclick: () => answer(null) }, 'Send answer'),
-            confirmButton('Withdraw', 'Confirm withdraw', () => act(() => api('POST', `/api/questions/${q.id}/withdraw`, {}), `Withdrew Q${q.id}`)),
-          ),
-        )
-      : h(
-          'p',
-          { class: 'answered' },
-          q.status === 'withdrawn'
-            ? 'Withdrawn'
-            : `Answered by ${q.answeredBy} ${ago(q.answeredAt)}: ${[q.options?.find((o) => o.key === q.answerChoice)?.label, q.answerText].filter(Boolean).join(' — ')}`,
-        ),
-  );
-}
-
-function questionsView() {
-  const open = openQuestions();
-  const closed = state.questions.filter((q) => q.status !== 'open').slice(0, 40);
-  return h(
-    'section',
-    { class: 'questions' },
-    open.length ? open.map(questionCard) : h('p', { class: 'empty' }, 'No open questions. Sessions ask with "ccc ask owner" or the ask_question tool.'),
-    closed.length ? h('details', { class: 'history' }, h('summary', null, `Answered and withdrawn (${closed.length})`), closed.map(questionCard)) : null,
-  );
-}
 
 // ---------- tasks ----------
 

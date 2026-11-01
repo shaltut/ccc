@@ -505,6 +505,35 @@ dialog::backdrop { background: rgb(0 0 0 / 0.35); }
 }
 .timeline time { color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
+/* ---------- questions ---------- */
+
+.q-list { display: flex; flex-direction: column; gap: 12px; }
+
+.question {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.question.hot { border-left: 3px solid var(--st); }
+
+.q-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 13px; }
+.q-time { margin-left: auto; }
+.q-body { max-width: 72ch; white-space: pre-wrap; overflow-wrap: anywhere; }
+.q-context summary { cursor: pointer; color: var(--text-muted); font-size: 13px; }
+
+.answer { display: flex; flex-direction: column; gap: 6px; max-width: 72ch; }
+.choices { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
+.choice { min-height: 36px; }
+.pending { padding: 8px 12px; background: var(--hover); border-radius: var(--radius); max-width: 72ch; }
+.answered { color: var(--text-muted); font-size: 13px; }
+
+.history { margin-top: 24px; }
+.history > summary { cursor: pointer; font-weight: 600; margin-bottom: 12px; }
+
 /* ---------- narrow screens ---------- */
 
 @media (max-width: 1023px) {

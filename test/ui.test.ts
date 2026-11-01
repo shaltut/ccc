@@ -117,3 +117,11 @@ test('the detail view is its own module', async () => {
   assert.match(src, /export async function renderDetail\(ctx, dialog, name\)/);
   assert.match(src, /export function describeEvent\(/);
 });
+test('queued answers have an undo window and guard against closing the page', async () => {
+  const app = await readFile(new URL('app.js', PUBLIC), 'utf8');
+  assert.match(app, /addEventListener\('beforeunload'[^\n]*state\.pending\.size/);
+  const q = await readFile(new URL('views/questions.js', PUBLIC), 'utf8');
+  assert.match(q, /const UNDO_MS = 5000;/);
+  assert.match(q, /clearTimeout\(p\.timer\)/);
+  assert.match(q, /export function questionsView\(ctx\)/);
+});
