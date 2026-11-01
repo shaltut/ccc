@@ -39,3 +39,8 @@ test('native selects get explicit colours for dark mode', () => {
 test('signed-out hides the app chrome', () => {
   assert.match(css, /body\.signed-out \.side\s*\{[^}]*display:\s*none/);
 });
+test('board rows truncate long text instead of widening the layout', () => {
+  assert.match(css, /\.srow\s*\{[^}]*grid-template-columns:[^;]*minmax\(0, 1fr\)/);
+  assert.match(css, /\.srow \.summary\s*\{[^}]*min-width:\s*0[^}]*text-overflow:\s*ellipsis/);
+  assert.match(css, /\.srow \.name\s*\{[^}]*text-overflow:\s*ellipsis/);
+});

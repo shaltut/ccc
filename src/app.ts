@@ -58,6 +58,10 @@ export function createApp(sql: Sql, config: Config): Hono<AppEnv> {
     const ext = file.split('.').pop() ?? '';
     return (await fileResponse(`public/${file}`, CONTENT_TYPES[ext] ?? 'text/plain')) ?? notFound();
   });
+  // View modules: one level, lower-case names only, so no path can climb out of public/views/.
+  app.get('/views/:file{[a-z0-9-]+\\.js}', async (c) =>
+    (await fileResponse(`public/views/${c.req.param('file')}`, CONTENT_TYPES.js!)) ?? notFound(),
+  );
 
   return app;
 }

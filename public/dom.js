@@ -1,4 +1,4 @@
-import { relTime } from './logic.js';
+import { relTime, absTime, STATUS_LABEL } from './logic.js';
 // DOM + fetch helpers. All text goes in as text nodes: agent-written content is never parsed as HTML.
 
 export function h(tag, props, ...children) {
@@ -44,6 +44,16 @@ export async function api(method, path, body) {
 
 /** Kept for existing callers: compact `Intl` relative time ("5m ago"). */
 export const ago = relTime;
+
+/** A <time> with the machine value, the absolute time on hover, and a relative label. */
+export function timeEl(value) {
+  return h('time', { datetime: value ? new Date(value).toISOString() : null, title: absTime(value) || null }, relTime(value));
+}
+
+/** Dot plus status word, coloured through [data-status]: never colour alone. */
+export function statusWord(status, label = STATUS_LABEL[status] ?? status) {
+  return h('span', { class: 'st', 'data-status': status }, h('span', { class: 'dot', 'aria-hidden': 'true' }), label);
+}
 
 export const minutesSince = (value) => (Date.now() - new Date(value).getTime()) / 60000;
 

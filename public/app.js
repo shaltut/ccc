@@ -1,4 +1,5 @@
 import { h, mount, api, ago, minutesSince, confirmButton, debounce, Unauthorized } from './dom.js';
+import { boardView } from './views/board.js';
 
 const STATUS_LABEL = {
   working: 'Working',
@@ -32,7 +33,7 @@ function saveProject(p) {
     localStorage.setItem(PROJECT_KEY, p);
   } catch {}
 }
-const state = { tab: 'board', project: readProject(), projects: [], sessions: [], devices: [], questions: [], tasks: [], detail: null, newToken: null };
+const state = { tab: 'board', project: readProject(), status: '', projects: [], sessions: [], devices: [], questions: [], tasks: [], detail: null, newToken: null };
 /** Adds ?project= when one project is selected; '' means all projects. */
 const scoped = (path) => (state.project ? `${path}${path.includes('?') ? '&' : '?'}project=${encodeURIComponent(state.project)}` : path);
 const inProject = () => (state.project ? { project: state.project } : {});
@@ -64,6 +65,26 @@ async function act(fn, done) {
 const deviceLabel = (id) => state.devices.find((d) => d.id === id)?.label ?? '—';
 const liveSessions = () => state.sessions.filter((s) => !s.retiredAt);
 const openQuestions = () => state.questions.filter((q) => q.status === 'open');
+
+// Everything a view may use. Views never import app.js.
+const ctx = {
+  state,
+  api,
+  act,
+  toast,
+  render,
+  // Interim navigation until the hash router lands (Task 8).
+  navigate: ({ view: next, status } = {}) => {
+    if (status !== undefined) state.status = status;
+    if (next && next !== state.tab) switchTab(next);
+    else render();
+  },
+  openDetail: (name) => openDetail(name),
+  deviceLabel,
+  liveSessions,
+  openQuestions,
+  inProject,
+};
 
 async function load() {
   const projects = await api('GET', '/api/projects');
@@ -124,7 +145,7 @@ function render() {
     if (b.dataset.tab === state.tab) b.setAttribute('aria-current', 'page');
     else b.removeAttribute('aria-current');
   }
-  const views = { board: boardView, questions: questionsView, tasks: tasksView, controls: controlsView };
+  const views = { board: () => boardView(ctx), questions: questionsView, tasks: tasksView, controls: controlsView };
   mount(view, views[state.tab]());
 }
 
@@ -160,59 +181,6 @@ function showLogin() {
     ),
   );
   input.focus();
-}
-
-// ---------- board ----------
-
-function strip(s) {
-  const flags = [
-    s.unread ? h('span', { class: 'flag' }, `${s.unread} unread`) : null,
-    s.pausePending ? h('span', { class: 'flag warn' }, 'Pause pending') : null,
-    s.status === 'unreachable' ? h('span', { class: 'flag alert' }, 'Needs a nudge in its terminal') : null,
-  ];
-  return h(
-    'button',
-    { type: 'button', class: `strip s-${s.status}`, onclick: () => openDetail(s.name) },
-    h('span', { class: 'band' }, STATUS_LABEL[s.status] ?? s.status),
-    h(
-      'span',
-      { class: 'strip-body' },
-      h(
-        'span',
-        { class: 'strip-head' },
-        h('span', { class: 'name' }, s.name),
-        h('span', { class: `role${s.role === 'orchestrator' ? ' lead' : ''}` }, s.role),
-        h('span', { class: 'project' }, s.project),
-        h('span', { class: 'meta' }, `${deviceLabel(s.deviceId)}, seen ${ago(s.lastHeartbeatAt ?? s.createdAt)}`),
-      ),
-      h('span', { class: 'doing', dir: 'auto' }, s.workingOn || 'No status reported yet'),
-      s.blocker ? h('span', { class: 'blocker', dir: 'auto' }, s.blocker) : null,
-      s.currentTask ? h('span', { class: 'task-line', dir: 'auto' }, `T${s.currentTask.id} ${s.currentTask.title}`) : null,
-      flags.some(Boolean) ? h('span', { class: 'flags' }, flags) : null,
-    ),
-  );
-}
-
-function boardView() {
-  const sessions = liveSessions();
-  const waiting = openQuestions();
-  const blocking = waiting.filter((q) => q.isBlocking).length;
-  return h(
-    'section',
-    { class: 'board' },
-    waiting.length
-      ? h(
-          'button',
-          { type: 'button', class: 'waiting', onclick: () => switchTab('questions') },
-          h('span', { class: 'waiting-n' }, String(waiting.length)),
-          h('span', null, waiting.length === 1 ? 'question is waiting for you' : 'questions are waiting for you'),
-          blocking ? h('span', { class: 'waiting-b' }, `${blocking} blocking a session`) : null,
-        )
-      : null,
-    sessions.length
-      ? h('div', { class: 'strips' }, sessions.map(strip))
-      : h('p', { class: 'empty' }, 'No sessions yet. Create a device token under Controls, then run "ccc setup" on that machine.'),
-  );
 }
 
 // ---------- session detail ----------
