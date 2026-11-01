@@ -12,6 +12,16 @@ Sessions are named by you (`W1`, `orch`, …) rather than by Claude account. A s
 
 Delivery is an inbox. Messages reach a session when its turn ends (the Stop hook), or straight away while it is idle and running `ccc wait`. CCC never controls processes remotely.
 
+## Docs
+
+| For | Read |
+|---|---|
+| Deploying it (VM agent) | [docs/deploy.md](docs/deploy.md) |
+| Prompts to paste into an orchestrator or worker session | [docs/agent-prompts.md](docs/agent-prompts.md) |
+| What it's for, step by step | [docs/use-cases.md](docs/use-cases.md) |
+| How it works: identity, delivery, data, API, limits | [docs/knowledge-base.md](docs/knowledge-base.md) |
+| Working on the code | [CLAUDE.md](CLAUDE.md) |
+
 ## Run
 
 ```sh
