@@ -67,3 +67,13 @@ test('events endpoint is owner only and filters by session', async () => {
   assert.ok(events.length >= 1);
   assert.ok(events.every((e) => e.sessionName === 'EV1'));
 });
+
+test('project picker: remembered safely, falls back to All when its project is gone', async () => {
+  const src = await readFile(new URL('app.js', PUBLIC), 'utf8');
+  assert.match(src, /api\('GET', '\/api\/projects'\)/);
+  assert.match(src, /try \{\s*return localStorage\.getItem\(PROJECT_KEY\)/);
+  assert.match(src, /state\.project && !state\.projects\.some\(\(p\) => p\.name === state\.project\)/);
+  assert.match(src, /\/project`, \{ project \}/);
+  const html = await readFile(new URL('index.html', PUBLIC), 'utf8');
+  assert.match(html, /<select id="project"/);
+});

@@ -19,7 +19,23 @@ const TASK_GROUPS = [
 ];
 const OVERDUE_MIN = 30;
 
-const state = { tab: 'board', sessions: [], devices: [], questions: [], tasks: [], detail: null, newToken: null };
+const PROJECT_KEY = 'ccc.project';
+function readProject() {
+  try {
+    return localStorage.getItem(PROJECT_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+function saveProject(p) {
+  try {
+    localStorage.setItem(PROJECT_KEY, p);
+  } catch {}
+}
+const state = { tab: 'board', project: readProject(), projects: [], sessions: [], devices: [], questions: [], tasks: [], detail: null, newToken: null };
+/** Adds ?project= when one project is selected; '' means all projects. */
+const scoped = (path) => (state.project ? `${path}${path.includes('?') ? '&' : '?'}project=${encodeURIComponent(state.project)}` : path);
+const inProject = () => (state.project ? { project: state.project } : {});
 const view = document.getElementById('view');
 const dialog = document.getElementById('detail');
 
@@ -50,10 +66,17 @@ const liveSessions = () => state.sessions.filter((s) => !s.retiredAt);
 const openQuestions = () => state.questions.filter((q) => q.status === 'open');
 
 async function load() {
+  const projects = await api('GET', '/api/projects');
+  state.projects = projects.projects;
+  // A remembered project with nothing left in it: show everything rather than an empty board.
+  if (state.project && !state.projects.some((p) => p.name === state.project)) {
+    state.project = '';
+    saveProject('');
+  }
   const [sessions, questions, tasks, devices] = await Promise.all([
-    api('GET', '/api/sessions'),
-    api('GET', '/api/questions'),
-    api('GET', '/api/tasks'),
+    api('GET', scoped('/api/sessions')),
+    api('GET', scoped('/api/questions')),
+    api('GET', scoped('/api/tasks')),
     api('GET', '/api/admin/devices'),
   ]);
   state.sessions = sessions.sessions;
@@ -83,7 +106,18 @@ async function refresh({ live = false } = {}) {
   if (dialog.open && state.detail) await renderDetail(state.detail);
 }
 
+const projectPick = document.getElementById('project');
+
+function renderProjectPicker() {
+  mount(
+    projectPick,
+    h('option', { value: '', selected: state.project === '' }, 'All projects'),
+    state.projects.map((p) => h('option', { value: p.name, selected: p.name === state.project }, `${p.name} (${p.sessions})`)),
+  );
+}
+
 function render() {
+  renderProjectPicker();
   const waiting = openQuestions().length;
   document.getElementById('q-count').textContent = waiting ? String(waiting) : '';
   for (const b of document.querySelectorAll('.tabs button')) {
@@ -148,6 +182,7 @@ function strip(s) {
         { class: 'strip-head' },
         h('span', { class: 'name' }, s.name),
         h('span', { class: `role${s.role === 'orchestrator' ? ' lead' : ''}` }, s.role),
+        h('span', { class: 'project' }, s.project),
         h('span', { class: 'meta' }, `${deviceLabel(s.deviceId)}, seen ${ago(s.lastHeartbeatAt ?? s.createdAt)}`),
       ),
       h('span', { class: 'doing', dir: 'auto' }, s.workingOn || 'No status reported yet'),
@@ -237,6 +272,7 @@ async function renderDetail(name) {
         'div',
         { class: 'detail-head' },
         h('h2', { id: 'detail-title' }, s.name),
+        h('span', { class: 'project' }, s.project),
         h('span', { class: `pill s-${s.status}` }, STATUS_LABEL[s.status]),
         h('button', { type: 'button', class: 'quiet close', onclick: () => dialog.close() }, 'Close'),
       ),
@@ -348,7 +384,7 @@ function taskRow(t) {
     'li',
     { class: 'task' },
     h('div', { class: 'task-title' }, h('span', { class: 'qid' }, `T${t.id}`), h('span', { dir: 'auto' }, t.title)),
-    h('div', { class: 'meta' }, `${t.assigneeName ?? 'unassigned'}, updated ${ago(t.updatedAt)}`),
+    h('div', { class: 'meta' }, `${state.project ? '' : `${t.project}, `}${t.assigneeName ?? 'unassigned'}, updated ${ago(t.updatedAt)}`),
     t.blocker ? h('p', { class: 'blocker', dir: 'auto' }, t.blocker) : null,
     t.result ? h('p', { class: 'qbody', dir: 'auto' }, t.result) : null,
     isOpen
@@ -408,37 +444,47 @@ function controlsView() {
         onsubmit: (e) => {
           e.preventDefault();
           void act(async () => {
-            const r = await api('POST', '/api/broadcast', { body: message.value });
+            const r = await api('POST', '/api/broadcast', { body: message.value, ...inProject() });
             toast(`Broadcast to ${r.count} sessions`);
           });
         },
       },
-      h('h2', null, 'Everyone'),
+      h('h2', null, state.project ? `Everyone in ${state.project}` : 'Everyone (all projects)'),
       message,
       h(
         'div',
         { class: 'row' },
         h('button', { type: 'submit', class: 'primary' }, 'Broadcast'),
-        confirmButton('Pause all', 'Confirm pause all', () => act(() => api('POST', '/api/control', { target: 'all', action: 'pause' }), 'Pause sent; each session stops when its turn ends'), 'warn'),
-        h('button', { type: 'button', onclick: () => act(() => api('POST', '/api/control', { target: 'all', action: 'resume' }), 'Resume sent') }, 'Resume all'),
+        confirmButton('Pause all', 'Confirm pause all', () => act(() => api('POST', '/api/control', { target: 'all', action: 'pause', ...inProject() }), 'Pause sent; each session stops when its turn ends'), 'warn'),
+        h('button', { type: 'button', onclick: () => act(() => api('POST', '/api/control', { target: 'all', action: 'resume', ...inProject() }), 'Resume sent') }, 'Resume all'),
       ),
     ),
     h(
       'div',
       { class: 'panel' },
       h('h2', null, 'Sessions'),
+      h('datalist', { id: 'project-names' }, state.projects.map((p) => h('option', { value: p.name }))),
       liveSessions().length
         ? h(
             'ul',
             { class: 'plain' },
             liveSessions().map((s) => {
               const role = h('select', { 'aria-label': `Role for ${s.name}` }, ROLES.map((r) => h('option', { value: r, selected: r === s.role }, r)));
+              const move = h('input', { type: 'text', list: 'project-names', maxlength: 64, placeholder: s.project, 'aria-label': `Move ${s.name} to project` });
               return h(
                 'li',
                 { class: 'row' },
                 h('span', { class: 'name small' }, s.name),
                 role,
                 h('button', { type: 'button', onclick: () => act(() => api('POST', `/api/admin/sessions/${encodeURIComponent(s.name)}/role`, { role: role.value }), `${s.name} is now ${role.value}`) }, 'Set role'),
+                move,
+                h('button', {
+                  type: 'button',
+                  onclick: () => {
+                    const project = move.value.trim();
+                    if (project) void act(() => api('POST', `/api/admin/sessions/${encodeURIComponent(s.name)}/project`, { project }), `${s.name} moved to ${project.toLowerCase()}`);
+                  },
+                }, 'Move'),
                 confirmButton('Retire', 'Confirm retire', () => act(() => api('POST', `/api/admin/sessions/${encodeURIComponent(s.name)}/retire`, {}), `Retired ${s.name}`)),
               );
             }),
@@ -495,6 +541,12 @@ function switchTab(tab) {
 }
 
 for (const b of document.querySelectorAll('.tabs button')) b.addEventListener('click', () => switchTab(b.dataset.tab));
+
+projectPick.addEventListener('change', () => {
+  state.project = projectPick.value;
+  saveProject(state.project);
+  void refresh();
+});
 
 let stream;
 const liveRefresh = debounce(() => void refresh({ live: true }), 300);
