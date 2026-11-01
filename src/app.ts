@@ -3,9 +3,10 @@ import { Hono } from 'hono';
 import { ZodError } from 'zod';
 import type { Sql } from './db.ts';
 import type { Config } from './config.ts';
-import type { AppEnv } from './actor.ts';
+import { resolveActor, type AppEnv } from './actor.ts';
 import { AppError } from './errors.ts';
 import { apiRoutes } from './api.ts';
+import { mcpHandler } from './mcp.ts';
 
 const ROOT = new URL('../', import.meta.url);
 const CONTENT_TYPES: Record<string, string> = {
@@ -49,6 +50,7 @@ export function createApp(sql: Sql, config: Config): Hono<AppEnv> {
   app.get('/cli/ccc.mjs', async () => (await fileResponse('cli/ccc.mjs', CONTENT_TYPES.js!)) ?? notFound());
 
   app.route('/api', apiRoutes(sql, config));
+  app.all('/mcp', resolveActor(sql, config), mcpHandler(sql));
 
   app.get('/', async () => (await fileResponse('public/index.html', CONTENT_TYPES.html!)) ?? notFound());
   app.get('/:file{[a-z0-9-]+\\.(?:js|css|html)}', async (c) => {

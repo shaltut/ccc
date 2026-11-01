@@ -11,7 +11,7 @@ const OPTIONAL_TEXT = z.string().max(65536).nullish();
 const address = z.string().min(1).max(64);
 const id = (raw: string | undefined) => z.coerce.number().int().positive().parse(raw);
 
-const optionsSchema = z
+export const OPTIONS_SCHEMA = z
   .array(z.object({ key: z.string().min(1).max(32), label: z.string().min(1).max(200) }))
   .min(1)
   .max(8)
@@ -69,7 +69,7 @@ export function mountWorkRoutes(api: Hono<AppEnv>, sql: Sql): void {
         to: address,
         body: BODY,
         context: OPTIONAL_TEXT,
-        options: optionsSchema.nullish(),
+        options: OPTIONS_SCHEMA.nullish(),
         isBlocking: z.boolean().optional(),
       }),
     );
