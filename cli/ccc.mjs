@@ -13,6 +13,12 @@ const HEARTBEAT_THROTTLE_MS = 60_000;
 const WAIT_POLL_MS = 25_000;
 const WAIT_RETRY_MS = 5_000;
 
+/** CCC_PROJECT as the server normalises it; anything else is omitted so the server uses 'default' (fail open). */
+const cccProject = () => {
+  const p = (process.env.CCC_PROJECT ?? '').trim().toLowerCase();
+  return /^[a-z0-9][a-z0-9_.-]{0,63}$/.test(p) ? p : undefined;
+};
+
 const cccDir = () => join(homedir(), '.ccc');
 const configPath = () => join(cccDir(), 'config.json');
 const selfPath = () => fileURLToPath(import.meta.url).replaceAll('\\', '/');
@@ -54,7 +60,7 @@ async function api(
 ) {
   const headers = { authorization: `Bearer ${cfg.token}` };
   if (name) headers['x-ccc-session'] = name;
-  if (process.env.CCC_PROJECT) headers['x-ccc-project'] = process.env.CCC_PROJECT;
+  if (cccProject()) headers['x-ccc-project'] = cccProject();
   if (claudeSessionId) headers['x-ccc-claude-session'] = claudeSessionId;
   if (body !== undefined) headers['content-type'] = 'application/json';
   const res = await fetch(cfg.url + path, {
@@ -250,7 +256,7 @@ async function cmdMcpHeaders() {
   const cfg = await requireConfig();
   const headers = { Authorization: `Bearer ${cfg.token}` };
   if (process.env.CCC_SESSION) headers['X-CCC-Session'] = process.env.CCC_SESSION;
-  if (process.env.CCC_PROJECT) headers['X-CCC-Project'] = process.env.CCC_PROJECT;
+  if (cccProject()) headers['X-CCC-Project'] = cccProject();
   if (process.env.CLAUDE_CODE_SESSION_ID) headers['X-CCC-Claude-Session'] = process.env.CLAUDE_CODE_SESSION_ID;
   out(JSON.stringify(headers));
 }

@@ -67,3 +67,12 @@ test("the watchdog tells the unreachable session's own orchestrator", async () =
   assert.ok((await inbox('KO')).some((m) => m.body.includes('KW is unreachable')));
   assert.equal((await inbox('IO')).filter((m) => m.body.includes('unreachable')).length, 0);
 });
+
+test('agents get their own lists even with an empty or invalid ?project=', async () => {
+  for (const q of ['', 'has%20space']) {
+    const tasks = await json(await as('KW')(`/api/tasks?project=${q}`));
+    assert.equal(tasks.status, 200);
+    const questions = await json(await as('KW')(`/api/questions?project=${q}`));
+    assert.equal(questions.status, 200);
+  }
+});

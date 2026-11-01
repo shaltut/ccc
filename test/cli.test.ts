@@ -314,3 +314,14 @@ test('mcp-headers includes the project', async () => {
   const r = await run(['mcp-headers'], { home: h, session: 'PJ4', env: { CCC_PROJECT: 'kiosk' } });
   assert.equal(JSON.parse(r.stdout)['X-CCC-Project'], 'kiosk');
 });
+
+test('a non-ASCII CCC_PROJECT falls back to default instead of breaking hooks and commands', async () => {
+  const h = await home();
+  const hook = await run(['hook', 'session-start'], { home: h, session: 'PJ5', input: hookInput({ session_id: 'pj5' }), env: { CCC_PROJECT: 'مشروع' } });
+  assert.equal(hook.code, 0);
+  assert.match(hook.stdout, /in project "default"/);
+  const reg = await run(['register'], { home: h, session: 'PJ6', env: { CCC_PROJECT: 'مشروع' } });
+  assert.equal(reg.code, 0, reg.stderr);
+  const headers = await run(['mcp-headers'], { home: h, session: 'PJ6', env: { CCC_PROJECT: ' iHop ' } });
+  assert.equal(JSON.parse(headers.stdout)['X-CCC-Project'], 'ihop');
+});

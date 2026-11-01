@@ -1,4 +1,4 @@
-import type { Hono } from 'hono';
+import type { Context, Hono } from 'hono';
 import { z } from 'zod';
 import type { Sql } from './db.ts';
 import { scopeProject, type AppEnv } from './actor.ts';
@@ -17,13 +17,16 @@ export const OPTIONS_SCHEMA = z
   .max(8)
   .refine((opts) => new Set(opts.map((o) => o.key)).size === opts.length, 'Option keys must be unique');
 
+/** Agents are always confined to their own project (any ?project= is ignored); the owner may filter with it. */
+const scoped = (c: Context<AppEnv>) => scopeProject(c.get('actor')) ?? PROJECT.optional().parse(c.req.query('project'));
+
 /** Task and question routes, mounted on the authenticated /api router. */
 export function mountWorkRoutes(api: Hono<AppEnv>, sql: Sql): void {
   api.get('/tasks', async (c) => {
     const f = z
-      .object({ assignee: z.string().max(64).optional(), status: z.enum(TASK_STATUSES).optional(), project: PROJECT.optional() })
+      .object({ assignee: z.string().max(64).optional(), status: z.enum(TASK_STATUSES).optional() })
       .parse(c.req.query());
-    return c.json({ tasks: await listTasks(sql, { ...f, project: scopeProject(c.get('actor')) ?? f.project }) });
+    return c.json({ tasks: await listTasks(sql, { ...f, project: scoped(c) }) });
   });
 
   api.post('/tasks', async (c) => {
@@ -60,13 +63,9 @@ export function mountWorkRoutes(api: Hono<AppEnv>, sql: Sql): void {
 
   api.get('/questions', async (c) => {
     const f = z
-      .object({
-        status: z.enum(['open', 'answered', 'withdrawn']).optional(),
-        to: z.string().max(64).optional(),
-        project: PROJECT.optional(),
-      })
+      .object({ status: z.enum(['open', 'answered', 'withdrawn']).optional(), to: z.string().max(64).optional() })
       .parse(c.req.query());
-    return c.json({ questions: await listQuestions(sql, { ...f, project: scopeProject(c.get('actor')) ?? f.project }) });
+    return c.json({ questions: await listQuestions(sql, { ...f, project: scoped(c) }) });
   });
 
   api.post('/questions', async (c) => {
