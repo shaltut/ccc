@@ -11,6 +11,7 @@ import {
   requireOwner,
   requireSession,
   resolveActor,
+  scopeProject,
   type AppEnv,
 } from './actor.ts';
 import { broadcast, control, formatForAgent, peekUnread, sendMessage, takeUnread, waitForUnread } from './messages.ts';
@@ -182,7 +183,7 @@ export function apiRoutes(sql: Sql, config: Config): Hono<AppEnv> {
     const actor = c.get('actor');
     const m = await body(c, z.object({ to: address, body: BODY, kind: z.enum(['note', 'instruction']).default('note') }));
     if (m.kind === 'instruction') requireOrchestrator(actor);
-    const to = await resolveAddress(sql, m.to);
+    const to = await resolveAddress(sql, m.to, scopeProject(actor));
     return c.json({ message: await sendMessage(sql, { from: actorName(actor), to, kind: m.kind, body: m.body }) });
   });
 

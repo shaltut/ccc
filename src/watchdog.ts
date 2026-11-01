@@ -19,9 +19,9 @@ export async function runWatchdog(sql: Sql, now: Date): Promise<{ unreachable: s
       and coalesce(last_heartbeat_at, created_at) < ${silentSince}
     returning *`;
 
-  const holder = await orchestratorHolder(sql);
   for (const s of unreachable) {
     await recordEvent(sql, { sessionId: s.id, sessionName: s.name, actor: 'system', type: 'unreachable' });
+    const holder = await orchestratorHolder(sql, s.project);
     if (holder && holder.id !== s.id) {
       await sendMessage(sql, {
         from: 'system',

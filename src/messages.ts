@@ -2,7 +2,7 @@ import { once } from 'node:events';
 import type { Sql } from './db.ts';
 import { bus, recordEvent } from './events.ts';
 import { heartbeat, resolveAddress, type Session } from './sessions.ts';
-import { actorName, requireOrchestrator, type Actor } from './actor.ts';
+import { actorName, requireOrchestrator, scopeProject, type Actor } from './actor.ts';
 
 export const MESSAGE_KINDS = ['instruction', 'task', 'answer', 'question', 'control', 'note', 'ping'] as const;
 export type MessageKind = (typeof MESSAGE_KINDS)[number];
@@ -82,7 +82,7 @@ export async function control(sql: Sql, actor: Actor, target: string, action: Co
   const targets =
     target === 'all'
       ? await liveSessions(sql, { excludeId: null, excludeOrchestrator: true })
-      : [await resolveAddress(sql, target)];
+      : [await resolveAddress(sql, target, scopeProject(actor))];
   const body = action === 'pause' ? PAUSE_TEXT : RESUME_TEXT;
   for (const to of targets) {
     await sendMessage(sql, { from: actorName(actor), to, kind: 'control', controlAction: action, body });

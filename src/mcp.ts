@@ -68,7 +68,7 @@ function buildServer(sql: Sql, actor: Extract<Actor, { kind: 'session' }>): McpS
       toolResult(async () => {
         const kind = a.kind ?? 'note';
         if (kind === 'instruction') requireOrchestrator(actor);
-        return sendMessage(sql, { from: actorName(actor), to: await resolveAddress(sql, a.to), kind, body: a.body });
+        return sendMessage(sql, { from: actorName(actor), to: await resolveAddress(sql, a.to, session.project), kind, body: a.body });
       }),
   );
   tool(

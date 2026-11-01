@@ -19,6 +19,9 @@ export const REGISTER_PATH = '/api/sessions/register';
 
 export const actorName = (a: Actor): string => (a.kind === 'owner' ? 'owner' : a.session.name);
 
+/** The project an agent is confined to; undefined for the owner, who may name any project. */
+export const scopeProject = (a: Actor): string | undefined => (a.kind === 'session' ? a.session.project : undefined);
+
 /**
  * Owner via the admin cookie; agents via device bearer token + X-CCC-Session.
  * The register route gets only device + name: registerSession decides which row it lands on.

@@ -4,7 +4,7 @@ import { recordEvent } from './events.ts';
 import { httpError } from './errors.ts';
 import { sendMessage } from './messages.ts';
 import { findSession, orchestratorHolder, resolveAddress } from './sessions.ts';
-import { actorName, type Actor } from './actor.ts';
+import { actorName, scopeProject, type Actor } from './actor.ts';
 
 export type QuestionOption = { key: string; label: string };
 export type QuestionStatus = 'open' | 'answered' | 'withdrawn';
@@ -49,7 +49,7 @@ export type NewQuestion = {
 };
 
 export async function askQuestion(sql: Sql, actor: Actor, n: NewQuestion): Promise<Question> {
-  const target = n.to === 'owner' ? null : await resolveAddress(sql, n.to);
+  const target = n.to === 'owner' ? null : await resolveAddress(sql, n.to, scopeProject(actor));
   const addressedTo = n.to === 'owner' ? 'owner' : n.to === 'orchestrator' ? ROLE_ORCHESTRATOR : n.to;
   const options = n.options?.length ? sql.json(n.options as postgres.JSONValue) : null;
   const [q] = await sql<Question[]>`
@@ -73,7 +73,7 @@ export async function askQuestion(sql: Sql, actor: Actor, n: NewQuestion): Promi
 
 async function canAnswer(sql: Sql, actor: Actor, q: Question): Promise<boolean> {
   if (actor.kind === 'owner') return true;
-  const holder = await orchestratorHolder(sql);
+  const holder = await orchestratorHolder(sql, actor.session.project);
   if (holder?.id === actor.session.id) return true;
   return q.addressedTo === actor.session.name;
 }

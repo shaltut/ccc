@@ -9,6 +9,13 @@ export type Status = (typeof STATUSES)[number];
 export const REPORTABLE_STATUSES = ['working', 'idle', 'blocked', 'waiting_permission', 'offline'] as const;
 export type ReportableStatus = (typeof REPORTABLE_STATUSES)[number];
 export const SESSION_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
+export const DEFAULT_PROJECT = 'default';
+
+/** CCC_PROJECT as sent by agents: trimmed and lower-cased; anything invalid is 'default' (hooks fail open). */
+export function normalizeProject(raw: string | null | undefined): string {
+  const p = (raw ?? '').trim().toLowerCase();
+  return SESSION_NAME.test(p) ? p : DEFAULT_PROJECT;
+}
 
 /** A holder active within this window keeps its name; a newcomer gets <name>-2. */
 const ACTIVE_WINDOW = '2 minutes';
@@ -22,6 +29,7 @@ export type Session = {
   claudeSessionId: string | null;
   supersededClaudeSessionIds: string[];
   cwd: string | null;
+  project: string;
   status: Status;
   workingOn: string | null;
   blocker: string | null;
@@ -40,7 +48,7 @@ export type SessionView = Session & {
   currentTask: { id: number; title: string } | null;
 };
 
-const COLUMNS = `id, name, role, device_id, claude_session_id, superseded_claude_session_ids, cwd, status,
+const COLUMNS = `id, name, role, device_id, claude_session_id, superseded_claude_session_ids, cwd, project, status,
   working_on, blocker, paused, last_heartbeat_at, last_activity_at, last_wait_at, last_ping_at, retired_at, created_at`;
 
 function one<T>(rows: readonly T[], what: string): T {
@@ -49,9 +57,11 @@ function one<T>(rows: readonly T[], what: string): T {
   return row;
 }
 
-/** Creates the session as a worker if missing and un-retires it; safe under concurrent first calls. */
-export async function ensureSession(sql: Sql, name: string, deviceId: string): Promise<Session> {
-  await sql`insert into ccc.sessions (name, device_id) values (${name}, ${deviceId}) on conflict (name) do nothing`;
+/** Creates the session as a worker if missing and un-retires it; the project applies only on creation. */
+export async function ensureSession(sql: Sql, name: string, deviceId: string, project: string = DEFAULT_PROJECT): Promise<Session> {
+  await sql`
+    insert into ccc.sessions (name, device_id, project) values (${name}, ${deviceId}, ${project})
+    on conflict (name) do nothing`;
   return one(
     await sql<Session[]>`update ccc.sessions set retired_at = null where name = ${name} returning ${sql.unsafe(COLUMNS)}`,
     'ensureSession',
@@ -74,6 +84,7 @@ export type RegisterInput = {
   claudeSessionId: string | null;
   cwd: string | null;
   role?: Role;
+  project?: string;
 };
 
 export type RegisterResult = { session: Session; assignedName: string; takeover: boolean };
@@ -98,8 +109,9 @@ export async function registerSession(sql: Sql, input: RegisterInput): Promise<R
       if (!existing) {
         const session = one(
           await tx<Session[]>`
-            insert into ccc.sessions (name, role, device_id, claude_session_id, cwd, last_heartbeat_at, last_activity_at)
-            values (${name}, ${role}, ${input.deviceId}, ${input.claudeSessionId}, ${input.cwd}, now(), now())
+            insert into ccc.sessions (name, role, device_id, claude_session_id, cwd, project, last_heartbeat_at, last_activity_at)
+            values (${name}, ${role}, ${input.deviceId}, ${input.claudeSessionId}, ${input.cwd},
+              ${input.project ?? DEFAULT_PROJECT}, now(), now())
             returning ${tx.unsafe(COLUMNS)}`,
           'register insert',
         );
@@ -152,7 +164,7 @@ export async function registerSession(sql: Sql, input: RegisterInput): Promise<R
     sessionName: session.name,
     actor: session.name,
     type: result.takeover ? 'takeover' : 'register',
-    payload: { requestedName: input.name, assignedName: result.assignedName, cwd: input.cwd },
+    payload: { requestedName: input.name, assignedName: result.assignedName, cwd: input.cwd, project: session.project },
   });
   return result;
 }
@@ -161,9 +173,10 @@ export function isSuperseded(session: Session, claudeSessionId: string | null): 
   return claudeSessionId !== null && session.supersededClaudeSessionIds.includes(claudeSessionId);
 }
 
-export async function orchestratorHolder(sql: Sql): Promise<Session | null> {
+export async function orchestratorHolder(sql: Sql, project: string): Promise<Session | null> {
   const [s] = await sql<Session[]>`
-    select ${sql.unsafe(COLUMNS)} from ccc.sessions where role = 'orchestrator' and retired_at is null`;
+    select ${sql.unsafe(COLUMNS)} from ccc.sessions
+    where role = 'orchestrator' and retired_at is null and project = ${project}`;
   return s ?? null;
 }
 
@@ -173,15 +186,20 @@ export async function findSession(sql: Sql, name: string): Promise<Session | nul
   return s ?? null;
 }
 
-/** 'orchestrator' resolves to the current role holder; anything else is a live session name. */
-export async function resolveAddress(sql: Sql, to: string): Promise<Session> {
+/**
+ * With `project` (an agent's own, or one the owner named): 'orchestrator' is that project's holder and a
+ * name must belong to it. Without (owner): any live name; 'orchestrator' then needs a project.
+ */
+export async function resolveAddress(sql: Sql, to: string, project?: string): Promise<Session> {
   if (to === 'orchestrator') {
-    const holder = await orchestratorHolder(sql);
-    if (!holder) throw httpError(409, 'no_orchestrator', 'No session currently holds the orchestrator role');
+    if (!project) throw httpError(400, 'project_required', 'Say which project: each project has its own orchestrator');
+    const holder = await orchestratorHolder(sql, project);
+    if (!holder) throw httpError(409, 'no_orchestrator', `No session holds the orchestrator role in project ${project}`);
     return holder;
   }
   const s = await findSession(sql, to);
   if (!s) throw httpError(404, 'unknown_session', `No session named ${to}`);
+  if (project && s.project !== project) throw httpError(403, 'other_project', `${to} is in project ${s.project}`);
   return s;
 }
 
@@ -240,7 +258,10 @@ export async function heartbeat(sql: Sql, sessionId: string, h: { activity: bool
 export async function setRole(sql: Sql, name: string, role: Role): Promise<Session> {
   const session = await sql.begin(async (tx) => {
     if (role === 'orchestrator') {
-      await tx`update ccc.sessions set role = 'worker' where role = 'orchestrator' and name <> ${name}`;
+      await tx`
+        update ccc.sessions set role = 'worker'
+        where role = 'orchestrator' and name <> ${name}
+          and project = (select project from ccc.sessions where name = ${name})`;
     }
     const [s] = await tx<Session[]>`
       update ccc.sessions set role = ${role} where name = ${name} and retired_at is null
@@ -263,7 +284,21 @@ export async function retireSession(sql: Sql, name: string): Promise<Session> {
   return s;
 }
 
-export async function listSessions(sql: Sql): Promise<SessionView[]> {
+/** Owner only. An orchestrator moving to another project becomes a worker there (one per project). */
+export async function moveSession(sql: Sql, name: string, project: string): Promise<Session> {
+  // SET expressions see the old row, so `project <> ${project}` compares against where it was.
+  const [s] = await sql<Session[]>`
+    update ccc.sessions set
+      role = case when role = 'orchestrator' and project <> ${project} then 'worker' else role end,
+      project = ${project}
+    where name = ${name} and retired_at is null
+    returning ${sql.unsafe(COLUMNS)}`;
+  if (!s) throw httpError(404, 'unknown_session', `No session named ${name}`);
+  await recordEvent(sql, { sessionId: s.id, sessionName: s.name, actor: 'owner', type: 'project', payload: { project } });
+  return s;
+}
+
+export async function listSessions(sql: Sql, project?: string): Promise<SessionView[]> {
   const rows = await sql<(Session & { unread: number; pausePending: boolean; taskId: number | null; taskTitle: string | null })[]>`
     select ${sql.unsafe(COLUMNS.replace(/(\w+)/g, 's.$1'))},
       (select count(*) from ccc.messages m where m.to_session_id = s.id and m.read_at is null) as unread,
@@ -273,12 +308,36 @@ export async function listSessions(sql: Sql): Promise<SessionView[]> {
     from ccc.sessions s
     left join lateral (select id, title from ccc.tasks where assignee_id = s.id and status = 'in_progress'
       order by updated_at desc limit 1) t on true
-    where s.retired_at is null
-    order by s.role = 'orchestrator' desc, s.name`;
+    where s.retired_at is null and ${project ? sql`s.project = ${project}` : sql`true`}
+    order by s.project, s.role = 'orchestrator' desc, s.name`;
   return rows.map(({ taskId, taskTitle, ...s }) => ({
     ...s,
     currentTask: taskId === null ? null : { id: taskId, title: taskTitle ?? '' },
   }));
+}
+
+export type ProjectSummary = { name: string; sessions: number; orchestrator: string | null; openTasks: number; openQuestions: number };
+
+/** Projects exist while something references them: a live session, an open task or an open question. */
+export async function listProjects(sql: Sql, project?: string): Promise<ProjectSummary[]> {
+  return [
+    ...(await sql<ProjectSummary[]>`
+      with names as (
+        select project from ccc.sessions where retired_at is null
+        union select project from ccc.tasks where status in ('open', 'in_progress', 'blocked')
+        union select project from ccc.questions where status = 'open'
+      )
+      select n.project as name,
+        (select count(*) from ccc.sessions s where s.project = n.project and s.retired_at is null) as sessions,
+        (select s.name from ccc.sessions s
+          where s.project = n.project and s.role = 'orchestrator' and s.retired_at is null) as orchestrator,
+        (select count(*) from ccc.tasks t
+          where t.project = n.project and t.status in ('open', 'in_progress', 'blocked')) as open_tasks,
+        (select count(*) from ccc.questions q where q.project = n.project and q.status = 'open') as open_questions
+      from names n
+      where ${project ? sql`n.project = ${project}` : sql`true`}
+      order by n.project`),
+  ];
 }
 
 const STANDING_RULES = [
@@ -297,7 +356,7 @@ export async function resumeContext(sql: Sql, session: Session): Promise<string>
   const [{ unread } = { unread: 0 }] = await sql<{ unread: number }[]>`
     select count(*) as unread from ccc.messages where to_session_id = ${session.id} and read_at is null`;
   const lines = [
-    `CCC: you are session "${session.name}" (role: ${session.role}). Unread messages: ${unread}.`,
+    `CCC: you are session "${session.name}" in project "${session.project}" (role: ${session.role}). Unread messages: ${unread}.`,
     `Last reported work: ${session.workingOn ? clip(session.workingOn, 200) : 'nothing yet'}`,
     tasks.length ? 'Open tasks:' : 'Open tasks: none',
     ...tasks.map((t) => `- T${t.id} [${t.status}] ${clip(t.title, 80)}`),

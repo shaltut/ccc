@@ -98,14 +98,14 @@ test('register may request a non-orchestrator role', async () => {
 });
 
 test('setRole moves orchestrator; resolveAddress follows', async () => {
-  await assert.rejects(resolveAddress(t.sql, 'orchestrator'), /no_orchestrator|No session/);
+  await assert.rejects(resolveAddress(t.sql, 'orchestrator', 'default'), /no_orchestrator|No session/);
   await ensureSession(t.sql, 'OA', deviceId);
   await ensureSession(t.sql, 'OB', deviceId);
   await setRole(t.sql, 'OA', 'orchestrator');
   await setRole(t.sql, 'OB', 'orchestrator');
   const rows = await t.sql`select name, role from ccc.sessions where name in ('OA', 'OB') order by name`;
   assert.deepEqual(rows.map((r) => [r.name, r.role]), [['OA', 'worker'], ['OB', 'orchestrator']]);
-  assert.equal((await resolveAddress(t.sql, 'orchestrator')).name, 'OB');
+  assert.equal((await resolveAddress(t.sql, 'orchestrator', 'default')).name, 'OB');
   await assert.rejects(resolveAddress(t.sql, 'nobody-here'), /unknown_session|No session/);
 });
 

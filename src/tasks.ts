@@ -3,7 +3,7 @@ import { recordEvent } from './events.ts';
 import { httpError } from './errors.ts';
 import { sendMessage } from './messages.ts';
 import { orchestratorHolder, resolveAddress, type Session } from './sessions.ts';
-import { actorName, isOrchestrator, requireOrchestrator, type Actor } from './actor.ts';
+import { actorName, isOrchestrator, requireOrchestrator, scopeProject, type Actor } from './actor.ts';
 
 export const TASK_STATUSES = ['open', 'in_progress', 'blocked', 'done', 'cancelled'] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
@@ -19,6 +19,7 @@ export type Task = {
   status: TaskStatus;
   blocker: string | null;
   result: string | null;
+  project: string;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -50,7 +51,7 @@ const taskMessage = (task: Task) => `Task T${task.id}: ${task.title}${task.body 
 
 export async function createTask(sql: Sql, actor: Actor, t: { to: string; title: string; body?: string }): Promise<Task> {
   requireOrchestrator(actor);
-  const to = await resolveAddress(sql, t.to);
+  const to = await resolveAddress(sql, t.to, scopeProject(actor));
   const [row] = await sql<{ id: number }[]>`
     insert into ccc.tasks (title, body, assignee_id, created_by)
     values (${t.title}, ${t.body ?? ''}, ${to.id}, ${actorName(actor)}) returning id`;
@@ -115,7 +116,7 @@ export async function updateTask(sql: Sql, actor: Actor, id: number, u: TaskUpda
 
   // Results and blockers go to the orchestrator (the hub), unless it made the change itself.
   if (u.status === 'done' || u.status === 'blocked') {
-    const holder = await orchestratorHolder(sql);
+    const holder = await orchestratorHolder(sql, task.project);
     const self = actor.kind === 'session' && holder?.id === actor.session.id;
     if (holder && !self) {
       const detail = (u.status === 'done' ? task.result : task.blocker) ?? '(no detail)';
