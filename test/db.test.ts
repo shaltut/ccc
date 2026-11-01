@@ -7,9 +7,9 @@ import { testSql, TEST_DATABASE_URL } from './helpers.ts';
 const sql = await testSql();
 after(() => sql.end());
 
-test('migrate applies 001 once', async () => {
+test('migrate applies every migration once', async () => {
   await sql.unsafe('drop schema if exists ccc cascade');
-  assert.deepEqual(await migrate(sql), ['001_init.sql']);
+  assert.deepEqual(await migrate(sql), ['001_init.sql', '002_projects.sql']);
   assert.deepEqual(await migrate(sql), []);
 });
 
@@ -48,5 +48,5 @@ test('migrate is safe to run concurrently', async () => {
   const other = createSql(TEST_DATABASE_URL);
   const results = await Promise.all([migrate(sql), migrate(other)]);
   await other.end();
-  assert.deepEqual(results.flat(), ['001_init.sql']);
+  assert.deepEqual(results.flat(), ['001_init.sql', '002_projects.sql']);
 });
