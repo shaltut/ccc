@@ -1,3 +1,4 @@
+import { relTime } from './logic.js';
 // DOM + fetch helpers. All text goes in as text nodes: agent-written content is never parsed as HTML.
 
 export function h(tag, props, ...children) {
@@ -41,14 +42,8 @@ export async function api(method, path, body) {
   return data;
 }
 
-export function ago(value) {
-  if (!value) return 'never';
-  const seconds = Math.max(0, (Date.now() - new Date(value).getTime()) / 1000);
-  if (seconds < 45) return 'just now';
-  if (seconds < 3600) return `${Math.round(seconds / 60)} min ago`;
-  if (seconds < 86400) return `${Math.round(seconds / 3600)} h ago`;
-  return `${Math.round(seconds / 86400)} d ago`;
-}
+/** Kept for existing callers: compact `Intl` relative time ("5m ago"). */
+export const ago = relTime;
 
 export const minutesSince = (value) => (Date.now() - new Date(value).getTime()) / 60000;
 
