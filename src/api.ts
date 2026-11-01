@@ -197,13 +197,13 @@ export function apiRoutes(sql: Sql, config: Config): Hono<AppEnv> {
   });
 
   api.post('/broadcast', async (c) => {
-    const { body: text } = await body(c, z.object({ body: BODY }));
-    return c.json({ count: await broadcast(sql, c.get('actor'), text) });
+    const r = await body(c, z.object({ body: BODY, project: PROJECT.optional() }));
+    return c.json({ count: await broadcast(sql, c.get('actor'), r.body, r.project) });
   });
 
   api.post('/control', async (c) => {
-    const r = await body(c, z.object({ target: address, action: z.enum(['pause', 'resume']) }));
-    return c.json({ count: await control(sql, c.get('actor'), r.target, r.action) });
+    const r = await body(c, z.object({ target: address, action: z.enum(['pause', 'resume']), project: PROJECT.optional() }));
+    return c.json({ count: await control(sql, c.get('actor'), r.target, r.action, r.project) });
   });
 
   api.post('/admin/sessions/:name/role', async (c) => {

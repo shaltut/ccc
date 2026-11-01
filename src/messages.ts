@@ -54,35 +54,41 @@ export async function sendMessage(sql: Sql, m: NewMessage): Promise<Message> {
   return message;
 }
 
-async function liveSessions(sql: Sql, opts: { excludeId: string | null; excludeOrchestrator: boolean }): Promise<Session[]> {
+async function liveSessions(
+  sql: Sql,
+  opts: { excludeId: string | null; excludeOrchestrator: boolean; project: string | undefined },
+): Promise<Session[]> {
   return [
     ...(await sql<Session[]>`
       select * from ccc.sessions
       where retired_at is null
         and ${opts.excludeId ? sql`id <> ${opts.excludeId}` : sql`true`}
         and ${opts.excludeOrchestrator ? sql`role <> 'orchestrator'` : sql`true`}
+        and ${opts.project ? sql`project = ${opts.project}` : sql`true`}
       order by name`),
   ];
 }
 
-/** One `instruction` row per live session (so each has its own read state), sender excluded. */
-export async function broadcast(sql: Sql, actor: Actor, body: string): Promise<number> {
+/** One `instruction` row per live session in scope (agents: their project; owner: `project` or all), sender excluded. */
+export async function broadcast(sql: Sql, actor: Actor, body: string, project?: string): Promise<number> {
   requireOrchestrator(actor);
   const targets = await liveSessions(sql, {
     excludeId: actor.kind === 'session' ? actor.session.id : null,
     excludeOrchestrator: false,
+    project: scopeProject(actor) ?? project,
   });
   for (const to of targets) await sendMessage(sql, { from: actorName(actor), to, kind: 'instruction', body });
   return targets.length;
 }
 
-/** 'all' targets every live non-orchestrator session; anything else is an address. */
-export async function control(sql: Sql, actor: Actor, target: string, action: ControlAction): Promise<number> {
+/** 'all' targets every live non-orchestrator session in scope; anything else is an address in scope. */
+export async function control(sql: Sql, actor: Actor, target: string, action: ControlAction, project?: string): Promise<number> {
   requireOrchestrator(actor);
+  const scope = scopeProject(actor) ?? project;
   const targets =
     target === 'all'
-      ? await liveSessions(sql, { excludeId: null, excludeOrchestrator: true })
-      : [await resolveAddress(sql, target, scopeProject(actor))];
+      ? await liveSessions(sql, { excludeId: null, excludeOrchestrator: true, project: scope })
+      : [await resolveAddress(sql, target, scope)];
   const body = action === 'pause' ? PAUSE_TEXT : RESUME_TEXT;
   for (const to of targets) {
     await sendMessage(sql, { from: actorName(actor), to, kind: 'control', controlAction: action, body });

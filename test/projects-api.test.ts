@@ -60,3 +60,23 @@ test('only the owner moves a session; the name is normalised and checked', async
   assert.equal((await as('I1')('/api/admin/sessions/I2/project', post({ project: 'kiosk' }))).status, 403);
   assert.equal((await t.owner('/api/admin/sessions/I2/project', post({ project: 'no spaces' }))).status, 400);
 });
+
+test("broadcast and pause-all stay inside the orchestrator's project", async () => {
+  await register('X1', 'xp');
+  await register('X2', 'xp');
+  await register('Y1', 'yp');
+  await setRole(t.sql, 'X1', 'orchestrator');
+  const b = await json(await as('X1')('/api/broadcast', post({ body: 'standup' })));
+  assert.equal(b.body.count, 1);
+  const p = await json(await as('X1')('/api/control', post({ target: 'all', action: 'pause' })));
+  assert.equal(p.body.count, 1);
+  const cross = await json(await as('X1')('/api/control', post({ target: 'Y1', action: 'pause' })));
+  assert.equal(cross.body.error.code, 'other_project');
+  assert.equal((await json(await as('Y1')('/api/inbox'))).body.messages.length, 0);
+
+  const ownerYp = await json(await t.owner('/api/broadcast', post({ body: 'yp only', project: 'yp' })));
+  assert.equal(ownerYp.body.count, 1);
+  const live = (await json(await t.owner('/api/sessions'))).body.sessions.length;
+  const ownerAll = await json(await t.owner('/api/broadcast', post({ body: 'everyone' })));
+  assert.equal(ownerAll.body.count, live);
+});
