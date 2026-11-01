@@ -28,7 +28,9 @@ exists in the schema but nothing reads or writes it.
 - **Session names stay globally unique.** `W1` cannot exist in two projects. The identity, takeover
   and `-N` logic (main spec §6.2) is unchanged.
 - An invalid `CCC_PROJECT` value falls back to `default` instead of failing: hooks must fail open.
-- Project names use the session-name pattern: `^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`.
+- Project names use the session-name pattern: `^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`. They are
+  trimmed and **lower-cased** wherever they come in (header, owner move, query), so `iHop` and
+  `ihop` are one project, not a stray duplicate.
 - Tasks and questions **record their project at creation**. Moving a session later does not rewrite
   history; its open tasks stay in the old project.
 
