@@ -170,3 +170,22 @@ test('a Sign out button ends the session and returns to the sign-in form', async
   // An answer still in its undo window would be lost, so signing out waits for it.
   assert.match(app, /if \(state\.pending\.size\)[^\n]*toast\(/);
 });
+
+test('the login page explains itself, can reveal the password, and names each failure', async () => {
+  const app = await readFile(new URL('app.js', PUBLIC), 'utf8');
+  assert.match(app, /'Sign in to Command Center'/);
+  assert.match(app, /'Agents connect with device tokens, not this password\.'/);
+  // Show/Hide toggles the input type and reports its state to assistive tech.
+  assert.match(app, /input\.type = shown \? 'text' : 'password'/);
+  assert.match(app, /setAttribute\('aria-pressed', String\(shown\)\)/);
+  // Sentence case, to match "Sign out".
+  assert.match(app, /'Sign in'\)/);
+  assert.doesNotMatch(app, /'Sign In'/);
+  // A locked-out owner is told so, rather than seeing a generic error.
+  assert.match(app, /err\.status === 429/);
+  assert.match(app, /signedOut \? "You're signed out\." : ''/);
+  const dom = await readFile(new URL('dom.js', PUBLIC), 'utf8');
+  assert.match(dom, /status: res\.status/);
+  const css = await readFile(new URL('style.css', PUBLIC), 'utf8');
+  assert.match(css, /\.login \.error-text:empty \{ display: none; \}/);
+});

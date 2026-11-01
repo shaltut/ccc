@@ -38,7 +38,7 @@ export async function api(method, path, body) {
   });
   if (res.status === 401) throw new Unauthorized('Signed out');
   const data = res.status === 204 ? null : await res.json().catch(() => null);
-  if (!res.ok) throw new Error(data?.error?.message ?? `Request failed (${res.status})`);
+  if (!res.ok) throw Object.assign(new Error(data?.error?.message ?? `Request failed (${res.status})`), { status: res.status });
   return data;
 }
 

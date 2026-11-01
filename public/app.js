@@ -330,7 +330,7 @@ document.getElementById('sign-out').addEventListener('click', async () => {
     if (!(err instanceof Unauthorized)) return toast(errorText(err), true);
   }
   state.newToken = null; // a freshly minted device token must not reappear for the next person to sign in
-  showLogin();
+  showLogin({ signedOut: true });
 });
 
 function moveRow(delta) {
@@ -362,41 +362,85 @@ document.addEventListener('keydown', (e) => {
 
 // ---------- login ----------
 
-function showLogin() {
+/** The owner's sign-in page. `signedOut` says so after the Sign out button, so the empty form isn't a surprise. */
+function showLogin({ signedOut = false } = {}) {
   stream?.close();
   if (dialog.open) dialog.close();
   document.body.classList.add('signed-out');
-  const input = h('input', { type: 'password', name: 'password', autocomplete: 'current-password', required: true, id: 'pw' });
-  const error = h('p', { class: 'error-text', role: 'alert' });
-  const submit = h('button', { type: 'submit', class: 'primary' }, 'Sign In');
+  const input = h('input', {
+    type: 'password',
+    name: 'password',
+    autocomplete: 'current-password',
+    required: true,
+    id: 'pw',
+    'aria-describedby': 'login-error',
+  });
+  let shown = false;
+  const reveal = h(
+    'button',
+    {
+      type: 'button',
+      class: 'quiet small reveal',
+      'aria-pressed': 'false',
+      'aria-controls': 'pw',
+      onclick: () => {
+        shown = !shown;
+        input.type = shown ? 'text' : 'password';
+        reveal.setAttribute('aria-pressed', String(shown));
+        reveal.textContent = shown ? 'Hide' : 'Show';
+        input.focus();
+      },
+    },
+    'Show',
+  );
+  const notice = h('p', { class: 'login-notice', role: 'status' }, signedOut ? "You're signed out." : '');
+  const error = h('p', { class: 'error-text', role: 'alert', id: 'login-error' });
+  const submit = h('button', { type: 'submit', class: 'primary' }, 'Sign in');
   mount(
     view,
     h(
-      'form',
-      {
-        class: 'login',
-        onsubmit: async (e) => {
-          e.preventDefault();
-          error.textContent = '';
-          submit.disabled = true;
-          submit.textContent = 'Signing in…';
-          try {
-            await api('POST', '/api/admin/login', { password: input.value });
-            await start();
-          } catch (err) {
-            error.textContent = err instanceof Unauthorized ? 'Wrong password.' : errorText(err);
-            submit.disabled = false;
-            submit.textContent = 'Sign In';
-            input.focus();
-          }
+      'div',
+      { class: 'login-wrap' },
+      h(
+        'form',
+        {
+          class: 'login',
+          'aria-labelledby': 'login-title',
+          onsubmit: async (e) => {
+            e.preventDefault();
+            error.textContent = '';
+            notice.textContent = '';
+            submit.disabled = true;
+            submit.textContent = 'Signing in…';
+            try {
+              await api('POST', '/api/admin/login', { password: input.value });
+              await start();
+            } catch (err) {
+              error.textContent =
+                err instanceof Unauthorized
+                  ? 'Wrong password.'
+                  : err.status === 429
+                    ? 'Too many wrong passwords. Sign-in is paused for up to 15 minutes.'
+                    : errorText(err);
+              submit.disabled = false;
+              submit.textContent = 'Sign in';
+              input.select();
+            }
+          },
         },
-      },
-      h('div', { class: 'brand', translate: 'no' }, 'CCC'),
-      h('h1', null, 'Command Center'),
-      h('label', { class: 'field', for: 'pw' }, 'Owner password'),
-      input,
-      submit,
-      error,
+        h('div', { class: 'login-brand', translate: 'no' }, h('span', { class: 'mark', 'aria-hidden': 'true' }), 'CCC'),
+        h(
+          'div',
+          { class: 'login-head' },
+          h('h1', { id: 'login-title' }, 'Sign in to Command Center'),
+          h('p', { class: 'login-sub' }, 'Coordinates your Claude Code sessions across machines.'),
+        ),
+        notice,
+        h('div', { class: 'field' }, h('label', { for: 'pw' }, 'Owner password'), h('div', { class: 'pw-row' }, input, reveal)),
+        error,
+        submit,
+      ),
+      h('p', { class: 'login-foot' }, 'Agents connect with device tokens, not this password.'),
     ),
   );
   input.focus();
