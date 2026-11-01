@@ -146,3 +146,11 @@ test('app routes through the hash and keeps shortcuts out of text fields', async
   assert.match(src, /e\.ctrlKey \|\| e\.metaKey \|\| e\.altKey/);
   assert.doesNotMatch(src, /\.tabs button/);
 });
+
+test('static files must be revalidated, so a deploy is never mixed with cached old assets', async () => {
+  for (const path of ['/', '/app.js', '/style.css', '/views/board.js', '/cli/ccc.mjs']) {
+    const res = await t.app.request(path);
+    assert.equal(res.status, 200, path);
+    assert.equal(res.headers.get('cache-control'), 'no-cache', path);
+  }
+});

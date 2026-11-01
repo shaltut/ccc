@@ -15,9 +15,11 @@ const CONTENT_TYPES: Record<string, string> = {
   css: 'text/css; charset=utf-8',
 };
 
+// `no-cache` = always revalidate. Without it Cloudflare and browsers keep old .js/.css for hours after a deploy
+// while index.html is fresh, and the mixed versions break the page. The files are small; refetching is cheap.
 async function fileResponse(path: string, contentType: string): Promise<Response | null> {
   try {
-    return new Response(await readFile(new URL(path, ROOT)), { headers: { 'content-type': contentType } });
+    return new Response(await readFile(new URL(path, ROOT)), { headers: { 'content-type': contentType, 'cache-control': 'no-cache' } });
   } catch {
     return null;
   }
