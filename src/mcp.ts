@@ -14,7 +14,7 @@ import { OPTIONS_SCHEMA } from './work-routes.ts';
 
 const BODY = z.string().min(1).max(65536);
 const TEXT = z.string().max(65536);
-const ADDRESS = z.string().min(1).max(64).describe('Session name, or "orchestrator" for whoever holds that role');
+const ADDRESS = z.string().min(1).max(64).describe('Session name in your project, or "orchestrator" for your project\'s orchestrator');
 const ID = z.number().int().positive();
 
 async function toolResult(fn: () => Promise<unknown>): Promise<CallToolResult> {
@@ -102,8 +102,8 @@ function buildServer(sql: Sql, actor: Extract<Actor, { kind: 'session' }>): McpS
     },
     (a) => toolResult(() => answerQuestion(sql, actor, a.id, { choice: a.choice ?? null, text: a.text ?? null })),
   );
-  tool('list_sessions', { description: 'Anyone: every live session with status, current task and unread count.' }, () =>
-    toolResult(() => listSessions(sql)),
+  tool('list_sessions', { description: 'Anyone: every live session in your project with status, current task and unread count.' }, () =>
+    toolResult(() => listSessions(sql, session.project)),
   );
   tool(
     'list_tasks',
@@ -111,7 +111,10 @@ function buildServer(sql: Sql, actor: Extract<Actor, { kind: 'session' }>): McpS
       description: 'Anyone: list tasks, optionally by assignee name and status.',
       inputSchema: { assignee: z.string().max(64).optional(), status: z.enum(TASK_STATUSES).optional() },
     },
-    (a) => toolResult(() => listTasks(sql, { ...(a.assignee ? { assignee: a.assignee } : {}), ...(a.status ? { status: a.status } : {}) })),
+    (a) =>
+      toolResult(() =>
+        listTasks(sql, { project: session.project, ...(a.assignee ? { assignee: a.assignee } : {}), ...(a.status ? { status: a.status } : {}) }),
+      ),
   );
   tool(
     'update_task',
@@ -144,13 +147,13 @@ function buildServer(sql: Sql, actor: Extract<Actor, { kind: 'session' }>): McpS
   tool('cancel_task', { description: 'Orchestrator only: cancel a task (the assignee is told).', inputSchema: { id: ID } }, (a) =>
     toolResult(() => cancelTask(sql, actor, a.id)),
   );
-  tool('broadcast', { description: 'Orchestrator only: send an instruction to every live session.', inputSchema: { body: BODY } }, (a) =>
+  tool('broadcast', { description: 'Orchestrator only: send an instruction to every live session in your project.', inputSchema: { body: BODY } }, (a) =>
     toolResult(async () => ({ count: await broadcast(sql, actor, a.body) })),
   );
   tool(
     'control',
     {
-      description: 'Orchestrator only: pause or resume a session or "all"; lands when its current turn ends.',
+      description: 'Orchestrator only: pause or resume a session or "all" in your project; lands when its current turn ends.',
       inputSchema: { target: z.string().min(1).max(64), action: z.enum(['pause', 'resume']) },
     },
     (a) => toolResult(async () => ({ count: await control(sql, actor, a.target, a.action) })),
@@ -161,7 +164,10 @@ function buildServer(sql: Sql, actor: Extract<Actor, { kind: 'session' }>): McpS
       description: 'Anyone: list questions, optionally by status and addressee.',
       inputSchema: { status: z.enum(['open', 'answered', 'withdrawn']).optional(), to: z.string().max(64).optional() },
     },
-    (a) => toolResult(() => listQuestions(sql, { ...(a.status ? { status: a.status } : {}), ...(a.to ? { to: a.to } : {}) })),
+    (a) =>
+      toolResult(() =>
+        listQuestions(sql, { project: session.project, ...(a.status ? { status: a.status } : {}), ...(a.to ? { to: a.to } : {}) }),
+      ),
   );
   return server;
 }

@@ -103,3 +103,13 @@ test('owner cookie cannot use MCP', async () => {
   });
   assert.equal(res.status, 403);
 });
+
+test('MCP lists and sends only inside the caller project', async () => {
+  await ensureSession(t.sql, 'OTHER', dev!.id, 'kiosk');
+  const c = await connect('W1');
+  const sessions = JSON.parse(text(await call(c, 'list_sessions'))) as { name: string }[];
+  assert.ok(!sessions.some((s) => s.name === 'OTHER'));
+  const cross = await call(c, 'send_message', { to: 'OTHER', body: 'hi' });
+  assert.equal(cross.isError, true);
+  assert.match(text(cross), /^other_project:/);
+});
