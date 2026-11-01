@@ -630,6 +630,15 @@ table.grid { width: 100%; border-collapse: collapse; }
 }
 .token input { width: 100%; }
 
+/* ---------- shortcut sheet ---------- */
+
+.sheet { width: min(440px, calc(100vw - 32px)); }
+.sheet-body { padding: 20px; }
+.sheet .page-head { margin-bottom: 8px; }
+.keys { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 16px; margin: 0; }
+.keys dt { white-space: nowrap; }
+.keys dd { margin: 0; color: var(--text-muted); }
+
 /* ---------- narrow screens ---------- */
 
 @media (max-width: 1023px) {

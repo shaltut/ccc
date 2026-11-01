@@ -137,3 +137,10 @@ test('controls never pre-fill an input that would freeze live refresh', async ()
   assert.match(src, /placeholder: 'Move to…'/);
   assert.doesNotMatch(src, /value: s\.project/);
 });
+test('app routes through the hash and keeps shortcuts out of text fields', async () => {
+  const src = await readFile(new URL('app.js', PUBLIC), 'utf8');
+  assert.match(src, /window\.addEventListener\('hashchange', applyRoute\)/);
+  assert.match(src, /isTypingTarget\(e\.target\)/);
+  assert.match(src, /e\.ctrlKey \|\| e\.metaKey \|\| e\.altKey/);
+  assert.doesNotMatch(src, /\.tabs button/);
+});

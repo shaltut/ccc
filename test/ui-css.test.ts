@@ -48,3 +48,16 @@ test('the session detail is a right-hand drawer', () => {
   assert.match(css, /\.drawer\s*\{[^}]*margin:\s*0 0 0 auto[^}]*height:\s*100dvh/);
   assert.match(css, /\.drawer\[open\]\s*\{[^}]*animation:\s*slide-in/);
 });
+const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
+
+test('index declares theme colours, the skip link, the sidebar and both fonts', () => {
+  assert.match(html, /<meta name="theme-color" content="#f4f4f5" media="\(prefers-color-scheme: light\)"/);
+  assert.match(html, /<meta name="theme-color" content="#09090b" media="\(prefers-color-scheme: dark\)"/);
+  assert.match(html, /<body class="signed-out">/);
+  assert.match(html, /<a class="skip" href="#view">/);
+  assert.match(html, /<aside class="side"/);
+  assert.match(html, /<a href="#\/board" data-view="board">/);
+  assert.match(html, /IBM\+Plex\+Mono/);
+  assert.doesNotMatch(html, /Condensed/);
+  assert.match(html, /<dialog id="keys"/);
+});
