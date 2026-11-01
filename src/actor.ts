@@ -3,7 +3,7 @@ import { getCookie } from 'hono/cookie';
 import type { Sql } from './db.ts';
 import type { Config } from './config.ts';
 import { deviceFromBearer, verifyAdminCookie, type Device } from './auth.ts';
-import { ensureSession, SESSION_NAME, type Session } from './sessions.ts';
+import { ensureSession, isSuperseded, SESSION_NAME, type Session } from './sessions.ts';
 import { httpError } from './errors.ts';
 
 export type Actor =
@@ -40,6 +40,9 @@ export function resolveActor(sql: Sql, config: Config): MiddlewareHandler<AppEnv
     c.set('claudeSessionId', claudeSessionId);
     if (c.req.path === REGISTER_PATH) return next();
     const session = await ensureSession(sql, name, device.id);
+    if (isSuperseded(session, claudeSessionId)) {
+      throw httpError(409, 'superseded', `Another process has taken over session ${name}`);
+    }
     c.set('actor', { kind: 'session', session, deviceId: device.id, claudeSessionId });
     return next();
   };
@@ -47,6 +50,11 @@ export function resolveActor(sql: Sql, config: Config): MiddlewareHandler<AppEnv
 
 export function requireOwner(actor: Actor): void {
   if (actor.kind !== 'owner') throw httpError(403, 'forbidden', 'Owner only');
+}
+
+export function requireSession(actor: Actor): Extract<Actor, { kind: 'session' }> {
+  if (actor.kind !== 'session') throw httpError(403, 'forbidden', 'Agent sessions only');
+  return actor;
 }
 
 export function isOrchestrator(actor: Actor): boolean {

@@ -3,7 +3,19 @@ import { deleteCookie, setCookie } from 'hono/cookie';
 import { z } from 'zod';
 import type { Sql } from './db.ts';
 import type { Config } from './config.ts';
-import { ADMIN_COOKIE, requireOwner, resolveActor, type AppEnv } from './actor.ts';
+import { ADMIN_COOKIE, requireOwner, requireSession, resolveActor, type AppEnv } from './actor.ts';
+import {
+  heartbeat,
+  listSessions,
+  registerSession,
+  REPORTABLE_STATUSES,
+  reportStatus,
+  resumeContext,
+  retireSession,
+  ROLES,
+  SESSION_NAME,
+  setRole,
+} from './sessions.ts';
 import {
   checkPassword,
   createDevice,
@@ -80,7 +92,73 @@ export function apiRoutes(sql: Sql, config: Config): Hono<AppEnv> {
     return c.json({ ok: true });
   });
 
-  api.get('/sessions', (c) => c.json({ sessions: [] }));
+  const text = (max: number) => z.string().max(max);
+  const nameParam = (c: Context) => z.string().regex(SESSION_NAME).parse(c.req.param('name'));
+
+  api.post('/sessions/register', async (c) => {
+    const device = c.get('device');
+    const name = c.get('sessionName');
+    if (!device || !name) throw httpError(403, 'forbidden', 'Agent sessions only');
+    const input = await body(
+      c,
+      z.object({
+        claudeSessionId: text(200).nullish(),
+        cwd: text(1024).nullish(),
+        role: z.enum(ROLES).optional(),
+      }),
+    );
+    const result = await registerSession(sql, {
+      name,
+      deviceId: device.id,
+      claudeSessionId: input.claudeSessionId ?? c.get('claudeSessionId'),
+      cwd: input.cwd ?? null,
+      ...(input.role ? { role: input.role } : {}),
+    });
+    return c.json({ ...result, resume: await resumeContext(sql, result.session) });
+  });
+
+  api.get('/me', async (c) => {
+    const { session } = requireSession(c.get('actor'));
+    return c.json({ session, resume: await resumeContext(sql, session) });
+  });
+
+  api.post('/status', async (c) => {
+    const { session } = requireSession(c.get('actor'));
+    const r = await body(
+      c,
+      z.object({
+        status: z.enum(REPORTABLE_STATUSES).optional(),
+        workingOn: text(2000).nullish(),
+        blocker: text(2000).nullish(),
+      }),
+    );
+    const updated = await reportStatus(sql, session, {
+      ...(r.status ? { status: r.status } : {}),
+      ...(r.workingOn !== undefined ? { workingOn: r.workingOn } : {}),
+      ...(r.blocker !== undefined ? { blocker: r.blocker } : {}),
+    });
+    return c.json({ session: updated });
+  });
+
+  api.post('/heartbeat', async (c) => {
+    const { session } = requireSession(c.get('actor'));
+    const { activity } = await body(c, z.object({ activity: z.boolean() }));
+    await heartbeat(sql, session.id, { activity });
+    return c.json({ ok: true });
+  });
+
+  api.get('/sessions', async (c) => c.json({ sessions: await listSessions(sql) }));
+
+  api.post('/admin/sessions/:name/role', async (c) => {
+    requireOwner(c.get('actor'));
+    const { role } = await body(c, z.object({ role: z.enum(ROLES) }));
+    return c.json({ session: await setRole(sql, nameParam(c), role) });
+  });
+
+  api.post('/admin/sessions/:name/retire', async (c) => {
+    requireOwner(c.get('actor'));
+    return c.json({ session: await retireSession(sql, nameParam(c)) });
+  });
 
   return api;
 }

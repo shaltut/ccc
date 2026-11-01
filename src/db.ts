@@ -7,7 +7,12 @@ const MIGRATIONS_DIR = new URL('../migrations/', import.meta.url);
 const MIGRATION_LOCK = 74280;
 
 export function createSql(url: string): Sql {
-  return postgres(url, { transform: postgres.camel, onnotice: () => {} });
+  return postgres(url, {
+    transform: postgres.camel,
+    onnotice: () => {},
+    // int8 (identity ids, count(*)) as JS numbers; ids stay far below 2^53.
+    types: { bigint: { to: 20, from: [20], serialize: (v: number) => String(v), parse: (v: string) => Number(v) } },
+  });
 }
 
 /** Applies unapplied migrations in name order; returns the names applied. */
