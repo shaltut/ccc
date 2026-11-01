@@ -125,3 +125,9 @@ test('queued answers have an undo window and guard against closing the page', as
   assert.match(q, /clearTimeout\(p\.timer\)/);
   assert.match(q, /export function questionsView\(ctx\)/);
 });
+test('a changed select or an open row menu also counts as a draft', async () => {
+  const src = await readFile(new URL('app.js', PUBLIC), 'utf8');
+  assert.match(src, /#view \[data-dirty\], #view details\.menu\[open\]/);
+  const tasks = await readFile(new URL('views/tasks.js', PUBLIC), 'utf8');
+  assert.match(tasks, /export function tasksView\(ctx\)/);
+});

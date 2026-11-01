@@ -534,6 +534,79 @@ dialog::backdrop { background: rgb(0 0 0 / 0.35); }
 .history { margin-top: 24px; }
 .history > summary { cursor: pointer; font-weight: 600; margin-bottom: 12px; }
 
+/* ---------- tasks + tables ---------- */
+
+.new-task { margin-bottom: 16px; }
+.new-task-grid { display: grid; grid-template-columns: minmax(0, 1fr) 220px auto; gap: 12px; align-items: end; }
+.new-task-grid .full { grid-column: 1 / -1; }
+.new-task-grid input, .new-task-grid select { width: 100%; }
+.grow { min-height: 34px; }
+.grow:focus, .grow:not(:placeholder-shown) { min-height: 96px; }
+
+.chips-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.chips-row .num { font-family: var(--mono); }
+
+.table-wrap { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+table.grid { width: 100%; border-collapse: collapse; }
+.grid th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 8px 12px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.grid th:first-child { border-top-left-radius: 8px; }
+.grid th:last-child { border-top-right-radius: 8px; }
+.grid td { padding: 8px 12px; border-top: 1px solid var(--border); vertical-align: top; }
+.grid tbody tr:first-child td { border-top: 0; }
+.grid tbody tr:hover { background: var(--hover); }
+.title-cell { min-width: 220px; }
+.task-title { font-weight: 500; overflow-wrap: anywhere; }
+.grid .second { color: var(--st); font-size: 13px; overflow-wrap: anywhere; }
+.actions { width: 1%; text-align: right; white-space: nowrap; }
+
+.menu { position: relative; display: inline-block; }
+.menu > summary {
+  list-style: none;
+  cursor: pointer;
+  display: inline-grid;
+  place-items: center;
+  min-width: 32px;
+  min-height: 32px;
+  border-radius: var(--radius);
+  color: var(--text-muted);
+}
+.menu > summary::-webkit-details-marker { display: none; }
+.menu > summary:hover, .menu[open] > summary { background: var(--hover); color: var(--text); }
+.menu-pop {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 260px;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  text-align: left;
+  white-space: normal;
+}
+
+@media (max-width: 1023px) {
+  .new-task-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 639px) {
+  .hide-sm { display: none; }
+}
+
 /* ---------- narrow screens ---------- */
 
 @media (max-width: 1023px) {

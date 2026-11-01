@@ -2,15 +2,9 @@ import { h, mount, api, ago, minutesSince, confirmButton, debounce, Unauthorized
 import { boardView } from './views/board.js';
 import { renderDetail as drawDetail } from './views/detail.js';
 import { questionsView } from './views/questions.js';
+import { tasksView } from './views/tasks.js';
 
 const ROLES = ['orchestrator', 'worker', 'helper', 'auditor', 'other'];
-const TASK_GROUPS = [
-  ['blocked', 'Blocked'],
-  ['in_progress', 'In progress'],
-  ['open', 'Not started'],
-  ['done', 'Done'],
-  ['cancelled', 'Cancelled'],
-];
 const OVERDUE_MIN = 30;
 
 const PROJECT_KEY = 'ccc.project';
@@ -26,7 +20,7 @@ function saveProject(p) {
     localStorage.setItem(PROJECT_KEY, p);
   } catch {}
 }
-const state = { tab: 'board', project: readProject(), status: '', pending: new Map(), projects: [], sessions: [], devices: [], questions: [], tasks: [], detail: null, newToken: null };
+const state = { tab: 'board', project: readProject(), status: '', pending: new Map(), taskFilter: 'open', projects: [], sessions: [], devices: [], questions: [], tasks: [], detail: null, newToken: null };
 /** Adds ?project= when one project is selected; '' means all projects. */
 const scoped = (path) => (state.project ? `${path}${path.includes('?') ? '&' : '?'}project=${encodeURIComponent(state.project)}` : path);
 const inProject = () => (state.project ? { project: state.project } : {});
@@ -108,11 +102,12 @@ async function load() {
   state.devices = devices.devices;
 }
 
-/** True while the owner has unsent text in a field: a remount would wipe it. */
+/** True while the owner has unsent input: typed text, a changed select, or an open row menu. A remount would lose it. */
 function hasDraft() {
-  return [...document.querySelectorAll('#view textarea, #view input:not([type=password]), #detail textarea')].some(
+  const typed = [...document.querySelectorAll('#view textarea, #view input:not([type=password]), #detail textarea')].some(
     (el) => el.value.trim() !== '',
   );
+  return typed || document.querySelector('#view [data-dirty], #view details.menu[open]') !== null;
 }
 
 /** Owner actions remount at once; live updates (`live: true`) wait until no draft is open. */
@@ -147,7 +142,7 @@ function render() {
     if (b.dataset.tab === state.tab) b.setAttribute('aria-current', 'page');
     else b.removeAttribute('aria-current');
   }
-  const views = { board: () => boardView(ctx), questions: () => questionsView(ctx), tasks: tasksView, controls: controlsView };
+  const views = { board: () => boardView(ctx), questions: () => questionsView(ctx), tasks: () => tasksView(ctx), controls: controlsView };
   mount(view, views[state.tab]());
 }
 
@@ -210,68 +205,6 @@ dialog.addEventListener('close', () => {
   back?.focus();
   lastFocus = null;
 });
-
-// ---------- tasks ----------
-
-function sessionSelect(label, selected) {
-  return h(
-    'select',
-    { 'aria-label': label, required: true },
-    liveSessions().map((s) => h('option', { value: s.name, selected: s.name === selected }, s.name)),
-  );
-}
-
-function taskRow(t) {
-  const isOpen = t.status !== 'done' && t.status !== 'cancelled';
-  const to = sessionSelect(`Reassign T${t.id}`, t.assigneeName);
-  return h(
-    'li',
-    { class: 'task' },
-    h('div', { class: 'task-title' }, h('span', { class: 'qid' }, `T${t.id}`), h('span', { dir: 'auto' }, t.title)),
-    h('div', { class: 'meta' }, `${state.project ? '' : `${t.project}, `}${t.assigneeName ?? 'unassigned'}, updated ${ago(t.updatedAt)}`),
-    t.blocker ? h('p', { class: 'blocker', dir: 'auto' }, t.blocker) : null,
-    t.result ? h('p', { class: 'qbody', dir: 'auto' }, t.result) : null,
-    isOpen
-      ? h(
-          'div',
-          { class: 'row' },
-          to,
-          h('button', { type: 'button', onclick: () => act(() => api('POST', `/api/tasks/${t.id}/assign`, { to: to.value }), `T${t.id} moved to ${to.value}`) }, 'Reassign'),
-          confirmButton('Cancel task', 'Confirm cancel', () => act(() => api('POST', `/api/tasks/${t.id}/cancel`, {}), `Cancelled T${t.id}`)),
-        )
-      : null,
-  );
-}
-
-function tasksView() {
-  const to = sessionSelect('Assign to');
-  const title = h('input', { type: 'text', required: true, maxlength: 500, placeholder: 'What needs doing', 'aria-label': 'Task title' });
-  const body = h('textarea', { rows: 3, maxlength: 65536, placeholder: 'Details (optional)', 'aria-label': 'Task details' });
-  return h(
-    'section',
-    { class: 'tasks' },
-    h(
-      'form',
-      {
-        class: 'panel',
-        onsubmit: (e) => {
-          e.preventDefault();
-          void act(() => api('POST', '/api/tasks', { to: to.value, title: title.value, ...(body.value ? { body: body.value } : {}) }), `Assigned to ${to.value}`);
-        },
-      },
-      h('h2', null, 'Assign a task'),
-      liveSessions().length ? [to, title, body, h('button', { type: 'submit', class: 'primary' }, 'Assign task')] : h('p', { class: 'empty' }, 'No sessions to assign to yet.'),
-    ),
-    TASK_GROUPS.map(([status, label]) => {
-      const items = state.tasks.filter((t) => t.status === status);
-      if (!items.length) return null;
-      const list = h('ul', { class: 'task-list' }, items.map(taskRow));
-      return status === 'done' || status === 'cancelled'
-        ? h('details', { class: 'history' }, h('summary', null, `${label} (${items.length})`), list)
-        : h('div', null, h('h2', null, `${label} (${items.length})`), list);
-    }),
-  );
-}
 
 // ---------- controls ----------
 
