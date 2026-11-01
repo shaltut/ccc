@@ -3,7 +3,7 @@ import type postgres from 'postgres';
 import { recordEvent } from './events.ts';
 import { httpError } from './errors.ts';
 import { sendMessage } from './messages.ts';
-import { findSession, orchestratorHolder, resolveAddress } from './sessions.ts';
+import { DEFAULT_PROJECT, findSession, orchestratorHolder, resolveAddress } from './sessions.ts';
 import { actorName, scopeProject, type Actor } from './actor.ts';
 
 export type QuestionOption = { key: string; label: string };
@@ -22,6 +22,7 @@ export type Question = {
   answerText: string | null;
   answeredBy: string | null;
   answeredAt: Date | null;
+  project: string;
   createdAt: Date;
 };
 
@@ -49,12 +50,14 @@ export type NewQuestion = {
 };
 
 export async function askQuestion(sql: Sql, actor: Actor, n: NewQuestion): Promise<Question> {
-  const target = n.to === 'owner' ? null : await resolveAddress(sql, n.to, scopeProject(actor));
+  const scope = scopeProject(actor);
+  const target = n.to === 'owner' ? null : await resolveAddress(sql, n.to, scope);
+  const project = scope ?? target?.project ?? DEFAULT_PROJECT;
   const addressedTo = n.to === 'owner' ? 'owner' : n.to === 'orchestrator' ? ROLE_ORCHESTRATOR : n.to;
   const options = n.options?.length ? sql.json(n.options as postgres.JSONValue) : null;
   const [q] = await sql<Question[]>`
-    insert into ccc.questions (asked_by, addressed_to, body, context, options, is_blocking)
-    values (${actorName(actor)}, ${addressedTo}, ${n.body}, ${n.context ?? null}, ${options}, ${n.isBlocking ?? false})
+    insert into ccc.questions (asked_by, addressed_to, body, context, options, is_blocking, project)
+    values (${actorName(actor)}, ${addressedTo}, ${n.body}, ${n.context ?? null}, ${options}, ${n.isBlocking ?? false}, ${project})
     returning *`;
   if (!q) throw new Error('question insert returned no row');
   if (target) {
@@ -73,7 +76,8 @@ export async function askQuestion(sql: Sql, actor: Actor, n: NewQuestion): Promi
 
 async function canAnswer(sql: Sql, actor: Actor, q: Question): Promise<boolean> {
   if (actor.kind === 'owner') return true;
-  const holder = await orchestratorHolder(sql, actor.session.project);
+  if (actor.session.project !== q.project) return false;
+  const holder = await orchestratorHolder(sql, q.project);
   if (holder?.id === actor.session.id) return true;
   return q.addressedTo === actor.session.name;
 }
@@ -124,13 +128,14 @@ export async function withdrawQuestion(sql: Sql, actor: Actor, id: number): Prom
 }
 
 /** Open first, blocking before non-blocking, oldest first; closed ones newest first. */
-export async function listQuestions(sql: Sql, f: { status?: QuestionStatus; to?: string }): Promise<Question[]> {
+export async function listQuestions(sql: Sql, f: { status?: QuestionStatus; to?: string; project?: string | undefined }): Promise<Question[]> {
   const to = f.to === 'orchestrator' ? ROLE_ORCHESTRATOR : f.to;
   return [
     ...(await sql<Question[]>`
       select * from ccc.questions
       where ${f.status ? sql`status = ${f.status}` : sql`true`}
         and ${to ? sql`addressed_to = ${to}` : sql`true`}
+        and ${f.project ? sql`project = ${f.project}` : sql`true`}
       order by status = 'open' desc, (status = 'open' and is_blocking) desc,
         case when status = 'open' then id end asc, id desc
       limit 500`),

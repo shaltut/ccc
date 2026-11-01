@@ -1,8 +1,8 @@
 import type { Hono } from 'hono';
 import { z } from 'zod';
 import type { Sql } from './db.ts';
-import type { AppEnv } from './actor.ts';
-import { body } from './http.ts';
+import { scopeProject, type AppEnv } from './actor.ts';
+import { body, PROJECT } from './http.ts';
 import { cancelTask, createTask, listTasks, reassignTask, TASK_STATUSES, updateTask } from './tasks.ts';
 import { answerQuestion, askQuestion, listQuestions, withdrawQuestion } from './questions.ts';
 
@@ -21,13 +21,16 @@ export const OPTIONS_SCHEMA = z
 export function mountWorkRoutes(api: Hono<AppEnv>, sql: Sql): void {
   api.get('/tasks', async (c) => {
     const f = z
-      .object({ assignee: z.string().max(64).optional(), status: z.enum(TASK_STATUSES).optional() })
+      .object({ assignee: z.string().max(64).optional(), status: z.enum(TASK_STATUSES).optional(), project: PROJECT.optional() })
       .parse(c.req.query());
-    return c.json({ tasks: await listTasks(sql, f) });
+    return c.json({ tasks: await listTasks(sql, { ...f, project: scopeProject(c.get('actor')) ?? f.project }) });
   });
 
   api.post('/tasks', async (c) => {
-    const t = await body(c, z.object({ to: address, title: z.string().min(1).max(500), body: z.string().max(65536).optional() }));
+    const t = await body(
+      c,
+      z.object({ to: address, title: z.string().min(1).max(500), body: z.string().max(65536).optional(), project: PROJECT.optional() }),
+    );
     return c.json({ task: await createTask(sql, c.get('actor'), t) });
   });
 
@@ -57,9 +60,13 @@ export function mountWorkRoutes(api: Hono<AppEnv>, sql: Sql): void {
 
   api.get('/questions', async (c) => {
     const f = z
-      .object({ status: z.enum(['open', 'answered', 'withdrawn']).optional(), to: z.string().max(64).optional() })
+      .object({
+        status: z.enum(['open', 'answered', 'withdrawn']).optional(),
+        to: z.string().max(64).optional(),
+        project: PROJECT.optional(),
+      })
       .parse(c.req.query());
-    return c.json({ questions: await listQuestions(sql, f) });
+    return c.json({ questions: await listQuestions(sql, { ...f, project: scopeProject(c.get('actor')) ?? f.project }) });
   });
 
   api.post('/questions', async (c) => {

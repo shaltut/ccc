@@ -49,12 +49,16 @@ const event = (sql: Sql, actor: Actor, task: Task, type: string, payload: Record
 
 const taskMessage = (task: Task) => `Task T${task.id}: ${task.title}${task.body ? `\n\n${task.body}` : ''}`;
 
-export async function createTask(sql: Sql, actor: Actor, t: { to: string; title: string; body?: string }): Promise<Task> {
+export async function createTask(
+  sql: Sql,
+  actor: Actor,
+  t: { to: string; title: string; body?: string; project?: string },
+): Promise<Task> {
   requireOrchestrator(actor);
-  const to = await resolveAddress(sql, t.to, scopeProject(actor));
+  const to = await resolveAddress(sql, t.to, scopeProject(actor) ?? t.project);
   const [row] = await sql<{ id: number }[]>`
-    insert into ccc.tasks (title, body, assignee_id, created_by)
-    values (${t.title}, ${t.body ?? ''}, ${to.id}, ${actorName(actor)}) returning id`;
+    insert into ccc.tasks (title, body, assignee_id, created_by, project)
+    values (${t.title}, ${t.body ?? ''}, ${to.id}, ${actorName(actor)}, ${to.project}) returning id`;
   const task = await getTask(sql, row!.id);
   await sendMessage(sql, { from: actorName(actor), to, kind: 'task', body: taskMessage(task), refTaskId: task.id });
   await event(sql, actor, task, 'task_created');
@@ -67,11 +71,19 @@ function requireOpen(task: Task): void {
   }
 }
 
+/** An agent (orchestrator included) acts only on its own project's tasks. */
+function requireTaskScope(actor: Actor, task: Task): void {
+  if (actor.kind === 'session' && actor.session.project !== task.project) {
+    throw httpError(403, 'other_project', `T${task.id} belongs to project ${task.project}`);
+  }
+}
+
 export async function reassignTask(sql: Sql, actor: Actor, id: number, toName: string): Promise<Task> {
   requireOrchestrator(actor);
   const before = await getTask(sql, id);
+  requireTaskScope(actor, before);
   requireOpen(before);
-  const to = await resolveAddress(sql, toName);
+  const to = await resolveAddress(sql, toName, before.project);
   const previous = await assigneeSession(sql, before);
   await sql`update ccc.tasks set assignee_id = ${to.id}, status = 'open', updated_at = now() where id = ${id}`;
   const task = await getTask(sql, id);
@@ -86,7 +98,9 @@ export async function reassignTask(sql: Sql, actor: Actor, id: number, toName: s
 
 export async function cancelTask(sql: Sql, actor: Actor, id: number): Promise<Task> {
   requireOrchestrator(actor);
-  requireOpen(await getTask(sql, id));
+  const before = await getTask(sql, id);
+  requireTaskScope(actor, before);
+  requireOpen(before);
   await sql`update ccc.tasks set status = 'cancelled', updated_at = now() where id = ${id}`;
   const task = await getTask(sql, id);
   const assignee = await assigneeSession(sql, task);
@@ -102,7 +116,8 @@ export type TaskUpdate = { status?: AgentTaskStatus; result?: string | null; blo
 export async function updateTask(sql: Sql, actor: Actor, id: number, u: TaskUpdate): Promise<Task> {
   const before = await getTask(sql, id);
   const isAssignee = actor.kind === 'session' && actor.session.id === before.assigneeId;
-  if (!isAssignee && !isOrchestrator(actor)) throw httpError(403, 'forbidden', 'Only the assignee or the orchestrator');
+  const inScope = actor.kind === 'owner' || actor.session.project === before.project;
+  if (!isAssignee && !(isOrchestrator(actor) && inScope)) throw httpError(403, 'forbidden', 'Only the assignee or the orchestrator');
   requireOpen(before);
   await sql`
     update ccc.tasks set
@@ -132,12 +147,13 @@ export async function updateTask(sql: Sql, actor: Actor, id: number, u: TaskUpda
   return task;
 }
 
-export async function listTasks(sql: Sql, f: { assignee?: string; status?: TaskStatus }): Promise<Task[]> {
+export async function listTasks(sql: Sql, f: { assignee?: string; status?: TaskStatus; project?: string | undefined }): Promise<Task[]> {
   return [
     ...(await sql<Task[]>`
       select t.*, s.name as assignee_name from ccc.tasks t left join ccc.sessions s on s.id = t.assignee_id
       where ${f.assignee ? sql`s.name = ${f.assignee}` : sql`true`}
         and ${f.status ? sql`t.status = ${f.status}` : sql`true`}
+        and ${f.project ? sql`t.project = ${f.project}` : sql`true`}
       order by t.id desc limit 500`),
   ];
 }
