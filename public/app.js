@@ -3,8 +3,8 @@ import { boardView } from './views/board.js';
 import { renderDetail as drawDetail } from './views/detail.js';
 import { questionsView } from './views/questions.js';
 import { tasksView } from './views/tasks.js';
+import { controlsView } from './views/controls.js';
 
-const ROLES = ['orchestrator', 'worker', 'helper', 'auditor', 'other'];
 const OVERDUE_MIN = 30;
 
 const PROJECT_KEY = 'ccc.project';
@@ -142,7 +142,7 @@ function render() {
     if (b.dataset.tab === state.tab) b.setAttribute('aria-current', 'page');
     else b.removeAttribute('aria-current');
   }
-  const views = { board: () => boardView(ctx), questions: () => questionsView(ctx), tasks: () => tasksView(ctx), controls: controlsView };
+  const views = { board: () => boardView(ctx), questions: () => questionsView(ctx), tasks: () => tasksView(ctx), controls: () => controlsView(ctx) };
   mount(view, views[state.tab]());
 }
 
@@ -205,109 +205,6 @@ dialog.addEventListener('close', () => {
   back?.focus();
   lastFocus = null;
 });
-
-// ---------- controls ----------
-
-function controlsView() {
-  const message = h('textarea', { rows: 3, required: true, maxlength: 65536, 'aria-label': 'Broadcast message' });
-  const label = h('input', { type: 'text', required: true, maxlength: 64, placeholder: 'e.g. windows, mac, vps', 'aria-label': 'Device label' });
-  return h(
-    'section',
-    { class: 'controls' },
-    h(
-      'form',
-      {
-        class: 'panel',
-        onsubmit: (e) => {
-          e.preventDefault();
-          void act(async () => {
-            const r = await api('POST', '/api/broadcast', { body: message.value, ...inProject() });
-            toast(`Broadcast to ${r.count} sessions`);
-          });
-        },
-      },
-      h('h2', null, state.project ? `Everyone in ${state.project}` : 'Everyone (all projects)'),
-      message,
-      h(
-        'div',
-        { class: 'row' },
-        h('button', { type: 'submit', class: 'primary' }, 'Broadcast'),
-        confirmButton('Pause all', 'Confirm pause all', () => act(() => api('POST', '/api/control', { target: 'all', action: 'pause', ...inProject() }), 'Pause sent; each session stops when its turn ends'), 'warn'),
-        h('button', { type: 'button', onclick: () => act(() => api('POST', '/api/control', { target: 'all', action: 'resume', ...inProject() }), 'Resume sent') }, 'Resume all'),
-      ),
-    ),
-    h(
-      'div',
-      { class: 'panel' },
-      h('h2', null, 'Sessions'),
-      h('datalist', { id: 'project-names' }, state.projects.map((p) => h('option', { value: p.name }))),
-      liveSessions().length
-        ? h(
-            'ul',
-            { class: 'plain' },
-            liveSessions().map((s) => {
-              const role = h('select', { 'aria-label': `Role for ${s.name}` }, ROLES.map((r) => h('option', { value: r, selected: r === s.role }, r)));
-              const move = h('input', { type: 'text', list: 'project-names', maxlength: 64, placeholder: s.project, 'aria-label': `Move ${s.name} to project` });
-              return h(
-                'li',
-                { class: 'row' },
-                h('span', { class: 'name small' }, s.name),
-                role,
-                h('button', { type: 'button', onclick: () => act(() => api('POST', `/api/admin/sessions/${encodeURIComponent(s.name)}/role`, { role: role.value }), `${s.name} is now ${role.value}`) }, 'Set role'),
-                move,
-                h('button', {
-                  type: 'button',
-                  onclick: () => {
-                    const project = move.value.trim();
-                    if (project) void act(() => api('POST', `/api/admin/sessions/${encodeURIComponent(s.name)}/project`, { project }), `${s.name} moved to ${project.toLowerCase()}`);
-                  },
-                }, 'Move'),
-                confirmButton('Retire', 'Confirm retire', () => act(() => api('POST', `/api/admin/sessions/${encodeURIComponent(s.name)}/retire`, {}), `Retired ${s.name}`)),
-              );
-            }),
-          )
-        : h('p', { class: 'empty' }, 'No sessions yet.'),
-    ),
-    h(
-      'form',
-      {
-        class: 'panel',
-        onsubmit: (e) => {
-          e.preventDefault();
-          void act(async () => {
-            const r = await api('POST', '/api/admin/devices', { label: label.value });
-            state.newToken = { label: r.device.label, token: r.token };
-          }, 'Device token created');
-        },
-      },
-      h('h2', null, 'Devices'),
-      state.newToken
-        ? h(
-            'div',
-            { class: 'token' },
-            h('p', null, `Token for ${state.newToken.label}. It is shown once: copy it now.`),
-            h('input', { type: 'text', readonly: true, value: state.newToken.token, onfocus: (e) => e.target.select(), 'aria-label': 'New device token' }),
-            h('button', { type: 'button', onclick: () => navigator.clipboard?.writeText(state.newToken.token).then(() => toast('Copied')) }, 'Copy token'),
-            h('button', { type: 'button', class: 'quiet', onclick: () => { state.newToken = null; render(); } }, 'Done'),
-          )
-        : null,
-      h(
-        'ul',
-        { class: 'plain' },
-        state.devices.map((d) =>
-          h(
-            'li',
-            { class: 'row' },
-            h('span', { class: 'name small' }, d.label),
-            h('span', { class: 'meta' }, d.revokedAt ? `revoked ${ago(d.revokedAt)}` : `added ${ago(d.createdAt)}`),
-            d.revokedAt ? null : confirmButton('Revoke', 'Confirm revoke', () => act(() => api('POST', `/api/admin/devices/${d.id}/revoke`, {}), `Revoked ${d.label}`)),
-          ),
-        ),
-      ),
-      h('div', { class: 'row' }, label, h('button', { type: 'submit', class: 'primary' }, 'Create token')),
-    ),
-  );
-}
 
 // ---------- tabs + live updates ----------
 

@@ -607,6 +607,29 @@ table.grid { width: 100%; border-collapse: collapse; }
   .hide-sm { display: none; }
 }
 
+/* ---------- controls ---------- */
+
+.controls { display: flex; flex-direction: column; gap: 16px; }
+.controls .field.narrow { max-width: 280px; }
+.controls .grid input, .controls .grid select { width: 100%; min-width: 120px; }
+.end { justify-content: flex-end; align-items: flex-end; flex-wrap: nowrap; }
+
+.dev-list { list-style: none; margin: 0; padding: 0; }
+.dev-list li { padding: 8px 0; border-top: 1px solid var(--border); }
+.dev-list li:first-child { border-top: 0; }
+.revoked .mono { color: var(--text-muted); text-decoration: line-through; }
+
+.token {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--st-waiting_permission);
+  border-radius: var(--radius);
+  background: var(--st-waiting_permission-tint);
+}
+.token input { width: 100%; }
+
 /* ---------- narrow screens ---------- */
 
 @media (max-width: 1023px) {

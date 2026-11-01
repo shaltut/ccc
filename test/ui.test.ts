@@ -131,3 +131,9 @@ test('a changed select or an open row menu also counts as a draft', async () => 
   const tasks = await readFile(new URL('views/tasks.js', PUBLIC), 'utf8');
   assert.match(tasks, /export function tasksView\(ctx\)/);
 });
+test('controls never pre-fill an input that would freeze live refresh', async () => {
+  const src = await readFile(new URL('views/controls.js', PUBLIC), 'utf8');
+  assert.match(src, /export function controlsView\(ctx\)/);
+  assert.match(src, /placeholder: 'Move to…'/);
+  assert.doesNotMatch(src, /value: s\.project/);
+});
