@@ -139,7 +139,7 @@ Errors look like `{ "error": { "code", "message" } }`. A 500 is always generic.
   - Coordination: `broadcast`, `control`.
   - Orchestrator-only checks live in the domain functions, so REST and MCP enforce the same rules.
 - **Static files:**
-  - `/` serves the UI.
+  - `/` serves the UI; `/views/*.js` serves its page modules (one level, lower-case names).
   - `/cli/ccc.mjs` serves the CLI.
   - `/healthz` is the health check.
 

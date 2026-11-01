@@ -5,7 +5,7 @@ A small self-hosted hub that lets Claude Code sessions on different machines coo
 - **Board.** Each session reports what it is working on, what is blocking it, and whether it is reachable.
 - **Orchestrator.** One session holds the orchestrator role. It assigns, reassigns and cancels tasks, and can pause or resume workers.
 - **Questions.** Workers ask questions; the orchestrator or the owner answers them.
-- **Owner UI.** A web page to see everything, answer questions and send instructions.
+- **Owner UI.** A web page to see everything, answer questions and send instructions. Press `?` for keyboard shortcuts.
 - **Agent access.** Agents use the REST API, the MCP endpoint or the `ccc` CLI. The UI is for the owner only.
 
 Sessions are named by you (`W1`, `orch`, …) rather than by Claude account. A session survives switching accounts, restarts and moving to another machine: start Claude again with the same name.
@@ -44,7 +44,7 @@ The image is `ghcr.io/shaltut/ccc` (CI pushes `:latest` and `:sha-<short>` from 
 
 1. Open the public URL and log in with `CCC_ADMIN_PASSWORD`.
 2. **Controls → Devices:** create one token per machine (Windows box, Mac, VPS). Each token is shown once; copy it.
-3. After the sessions register, use **Controls → Roles** to make one of them the orchestrator.
+3. After the sessions register, use **Controls → Sessions** to make one of them the orchestrator.
 
 ## Per-machine setup
 

@@ -6,7 +6,7 @@ Real situations CCC is built for, with what each person or agent does. "Owner" m
 
 1. On the VPS, run `CCC_SESSION=orch claude` and paste the orchestrator prompt from [agent-prompts.md](agent-prompts.md).
 2. On the Windows box, run `$env:CCC_SESSION='W1'; claude` and paste the worker prompt. On the Mac, do the same with `W2`.
-3. In the UI, open **Controls → Roles** and make `orch` the orchestrator.
+3. In the UI, open **Controls → Sessions**, set `orch` to the orchestrator role and save.
 4. Tell `orch` the goal in its terminal. It splits the goal into tasks with `assign_task`. Each worker gets a "Task T<n>" in its inbox and starts.
 
 On the board you see three cards. Each shows the session's status, what it is working on, and its current task.
