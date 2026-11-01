@@ -30,6 +30,7 @@ function run(
   // The suite may itself run inside Claude Code: never leak the outer session's identity.
   delete env.CCC_SESSION;
   delete env.CCC_ROLE;
+  delete env.CCC_PROJECT;
   delete env.CLAUDE_CODE_SESSION_ID;
   if (opts.session) env.CCC_SESSION = opts.session;
   Object.assign(env, opts.env);
@@ -286,4 +287,30 @@ test('session-start honours CCC_ROLE for a new name, and ignores an unknown one'
   await run(['hook', 'session-start'], { home: h, session: 'R12', input: hookInput({ session_id: 's12' }), env: { CCC_ROLE: 'boss' } });
   const rows = await t.sql<{ name: string; role: string }[]>`select name, role from ccc.sessions where name in ('R11', 'R12') order by name`;
   assert.deepEqual(rows.map((r) => [r.name, r.role]), [['R11', 'helper'], ['R12', 'worker']]);
+});
+
+test('register sends CCC_PROJECT and prints the project; sessions shows it', async () => {
+  const h = await home();
+  const r = await run(['register'], { home: h, session: 'PJ1', env: { CCC_PROJECT: 'iHop' } });
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /Registered as PJ1 in project ihop/);
+  const list = await run(['sessions'], { home: h, session: 'PJ1', env: { CCC_PROJECT: 'ihop' } });
+  assert.match(list.stdout, /PJ1\s+ihop\s+/);
+});
+
+test('session-start hook registers into CCC_PROJECT and still fails open', async () => {
+  const h = await home();
+  const r = await run(['hook', 'session-start'], { home: h, session: 'PJ2', input: hookInput({ session_id: 'pj2' }), env: { CCC_PROJECT: 'kiosk' } });
+  assert.equal(r.code, 0);
+  assert.match(r.stdout, /in project "kiosk"/);
+  const dead = await home('http://127.0.0.1:1');
+  const d = await run(['hook', 'session-start'], { home: dead, session: 'PJ3', input: hookInput({ session_id: 'pj3' }), env: { CCC_PROJECT: 'kiosk' } });
+  assert.equal(d.code, 0);
+  assert.equal(d.stdout, '');
+});
+
+test('mcp-headers includes the project', async () => {
+  const h = await home();
+  const r = await run(['mcp-headers'], { home: h, session: 'PJ4', env: { CCC_PROJECT: 'kiosk' } });
+  assert.equal(JSON.parse(r.stdout)['X-CCC-Project'], 'kiosk');
 });

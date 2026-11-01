@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // CCC CLI and Claude Code hook handler. Zero dependencies; Node >= 18.
-// Config: ~/.ccc/config.json {url, token} (written by `ccc setup`). Session name: env CCC_SESSION.
+// Config: ~/.ccc/config.json {url, token} (written by `ccc setup`). Session name: env CCC_SESSION; project: env CCC_PROJECT.
 import { mkdir, readFile, stat, writeFile, utimes } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -54,6 +54,7 @@ async function api(
 ) {
   const headers = { authorization: `Bearer ${cfg.token}` };
   if (name) headers['x-ccc-session'] = name;
+  if (process.env.CCC_PROJECT) headers['x-ccc-project'] = process.env.CCC_PROJECT;
   if (claudeSessionId) headers['x-ccc-claude-session'] = claudeSessionId;
   if (body !== undefined) headers['content-type'] = 'application/json';
   const res = await fetch(cfg.url + path, {
@@ -109,7 +110,7 @@ async function cmdRegister(_, flags) {
   const cfg = await requireConfig();
   requireSessionName();
   const r = await api(cfg, 'POST', '/api/sessions/register', { cwd: process.cwd(), ...(flags.role ? { role: flags.role } : {}) });
-  out(`Registered as ${r.assignedName} (role ${r.session.role})${r.takeover ? ' — took over from an older process' : ''}`);
+  out(`Registered as ${r.assignedName} in project ${r.session.project} (role ${r.session.role})${r.takeover ? ' — took over from an older process' : ''}`);
   out(r.resume);
 }
 
@@ -121,7 +122,7 @@ async function cmdStatus([workingOn], flags) {
   if (flags.state) body.status = flags.state;
   if (flags.blocker !== undefined) body.blocker = flags.blocker === true ? null : flags.blocker;
   const r = await api(cfg, 'POST', '/api/status', body);
-  out(`${r.session.name}: ${r.session.status}${r.session.workingOn ? ` — ${r.session.workingOn}` : ''}`);
+  out(`${r.session.name} [${r.session.project}]: ${r.session.status}${r.session.workingOn ? ` — ${r.session.workingOn}` : ''}`);
 }
 
 async function cmdInbox(_, flags) {
@@ -233,7 +234,7 @@ async function cmdSessions() {
   const r = await api(cfg, 'GET', '/api/sessions');
   out(
     r.sessions
-      .map((s) => `${s.name.padEnd(14)} ${s.role.padEnd(12)} ${s.status.padEnd(18)} ${s.workingOn ?? ''}${s.unread ? ` (${s.unread} unread)` : ''}`)
+      .map((s) => `${s.name.padEnd(14)} ${String(s.project).padEnd(12)} ${s.role.padEnd(12)} ${s.status.padEnd(18)} ${s.workingOn ?? ''}${s.unread ? ` (${s.unread} unread)` : ''}`)
       .join('\n') || '(no sessions)',
   );
 }
@@ -249,6 +250,7 @@ async function cmdMcpHeaders() {
   const cfg = await requireConfig();
   const headers = { Authorization: `Bearer ${cfg.token}` };
   if (process.env.CCC_SESSION) headers['X-CCC-Session'] = process.env.CCC_SESSION;
+  if (process.env.CCC_PROJECT) headers['X-CCC-Project'] = process.env.CCC_PROJECT;
   if (process.env.CLAUDE_CODE_SESSION_ID) headers['X-CCC-Claude-Session'] = process.env.CLAUDE_CODE_SESSION_ID;
   out(JSON.stringify(headers));
 }
@@ -389,7 +391,7 @@ const COMMANDS = {
 
 const USAGE = `ccc <command>
   setup <url> <token>            save server URL + device token to ~/.ccc/config.json
-  register [--role R]            register this session (name from CCC_SESSION)
+  register [--role R]            register this session (name from CCC_SESSION, project from CCC_PROJECT)
   status "<working on>" [--state working|idle|blocked] [--blocker "<text>"]
   inbox [--peek]                 read (and mark read) your messages
   wait [--timeout <sec>]         block until a message arrives, print it, exit
