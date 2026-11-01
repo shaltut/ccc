@@ -26,6 +26,7 @@ This is how CCC works and why. It is for anyone changing the code or running it.
 | Owner | HMAC-signed cookie `ccc_admin`, 30 days; key = sha256(`ccc-cookie:` + password) | `src/auth.ts` |
 | Device (a machine) | Bearer token `ccc_…` (32 random bytes), stored only as a sha256 hash; revocable | `src/auth.ts` |
 | Session (a name) | `X-CCC-Session` header, from the `CCC_SESSION` env var | `src/actor.ts` |
+| Project | `X-CCC-Project` header, from `CCC_PROJECT`; applied only when the name is created | `src/actor.ts`, `src/sessions.ts` |
 | Claude process | `X-CCC-Claude-Session`: hooks send stdin `session_id`; the CLI sends `CLAUDE_CODE_SESSION_ID` | `src/actor.ts`, `cli/ccc.mjs` |
 
 **Name rules** (`registerSession`, `src/sessions.ts`):
@@ -63,6 +64,22 @@ This is how CCC works and why. It is for anyone changing the code or running it.
 - **Pause and resume** are messages of kind `control`. Delivering a pause flips `paused`. The board shows *pause pending* until it is delivered.
 - **No mid-turn injection.** This was the owner's decision: mail lands only when a turn ends.
 
+## Projects
+
+Every session, task and question belongs to one project (`CCC_PROJECT`, lower-cased; `default` when unset or invalid). The scope project of a request is the caller's own project for an agent, or the project the owner names.
+
+| Operation | Agent | Owner |
+|---|---|---|
+| Address `orchestrator` | its project's orchestrator; 409 `no_orchestrator` if none | needs a project, else 400 |
+| Address a session by name | only within its project, else 403 `other_project` | any session |
+| `broadcast` / `control all` | its project's sessions (orchestrator only) | optional project; absent = every project |
+| List sessions / tasks / questions | its project only (the `project` query param is ignored) | optional `?project=` filter |
+| Question `role:orchestrator` | asker's project orchestrator | — |
+| Task results and blockers | that task's project orchestrator | — |
+| Watchdog "unreachable" note | that session's project orchestrator | — |
+| Grant orchestrator | — | demotes only the current holder in that session's project |
+| Move session | — | new owner route. An orchestrator being moved drops to `worker`. |
+
 ## 4. Watchdog (`src/watchdog.ts`, every minute)
 
 - **Unreachable:** no heartbeat for **15 min** marks the session `unreachable`. The orchestrator gets a note: "<name> is unreachable: no heartbeat for 15 min. It needs a nudge in its terminal."
@@ -83,14 +100,14 @@ This is how CCC works and why. It is for anyone changing the code or running it.
 
 **MCP registration** uses `headersHelper` (`ccc mcp-headers`) instead of `${VAR}` headers. Claude Code blanks env vars whose names contain TOKEN, KEY, SECRET and similar words in remote headers.
 
-## 6. Data (`migrations/001_init.sql`, schema `ccc`)
+## 6. Data (`migrations/001_init.sql`, `002_projects.sql`, schema `ccc`)
 
 | Table | Holds |
 |---|---|
 | `devices` | label, token hash, revoked_at |
-| `sessions` | name, role, device, Claude id, superseded ids, cwd, status, working_on, blocker, paused, heartbeat/activity/wait/ping timestamps, retired_at |
-| `tasks` | title, body, assignee, status (`open/in_progress/blocked/done/cancelled`), result, blocker |
-| `questions` | asker, addressee (`owner`, a name, or `role:orchestrator`), options (1–8), is_blocking, answer, status |
+| `sessions` | name, project, role, device, Claude id, superseded ids, cwd, status, working_on, blocker, paused, heartbeat/activity/wait/ping timestamps, retired_at |
+| `tasks` | title, body, project, assignee, status (`open/in_progress/blocked/done/cancelled`), result, blocker |
+| `questions` | project, asker, addressee (`owner`, a name, or `role:orchestrator`), options (1–8), is_blocking, answer, status |
 | `messages` | from, to, kind (`instruction/task/answer/question/control/note/ping`), body ≤ 64 KB, read_at |
 | `events` | append-only audit: who did what, as JSON. Feeds the timeline and SSE |
 

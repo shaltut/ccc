@@ -56,7 +56,7 @@ The database user needs to be able to `create schema` on first boot, or you can 
   - `/api/stream` is Server-Sent Events. Disable buffering and keep the connection open; the server sends a keepalive every 25 s.
   - `/api/inbox/wait` is a long-poll of up to 30 s.
   - Set the proxy's read timeout to at least **60 s**.
-- **Pass these request headers through unchanged:** `Authorization`, `X-CCC-Session`, `X-CCC-Claude-Session`, `Mcp-Session-Id`.
+- **Pass these request headers through unchanged:** `Authorization`, `X-CCC-Session`, `X-CCC-Claude-Session`, `X-CCC-Project`, `Mcp-Session-Id`.
 - **Limit body size to about 1 MB.** Message bodies are capped at 64 KB.
 
 nginx sketch:

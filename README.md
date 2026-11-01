@@ -67,13 +67,15 @@ The session name comes from the `CCC_SESSION` environment variable. Without it, 
 
 ```powershell
 # Windows (PowerShell)
-$env:CCC_SESSION = 'W1'; claude
+$env:CCC_PROJECT = 'ihop'; $env:CCC_SESSION = 'W1'; claude
 ```
 
 ```sh
 # macOS / Linux
-CCC_SESSION=W1 claude
+CCC_PROJECT=ihop CCC_SESSION=W1 claude
 ```
+
+`CCC_PROJECT` puts the session in a project (lower-cased; default `default`). Each project has its own orchestrator; `orchestrator` and `all` mean "in my project". The project is set the first time a name registers; move a session later under **Controls → Sessions**.
 
 Optional: `CCC_ROLE` (`worker`, `helper`, `auditor` or `other`) requests a role the first time a name registers. Only the owner grants `orchestrator`.
 

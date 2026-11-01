@@ -6,9 +6,9 @@ Paste one of these into a Claude Code session that was started with a CCC sessio
 
 1. The machine has been set up once (see [README → Per-machine setup](../README.md#per-machine-setup)).
 2. The session was launched with a name:
-   - Windows: `$env:CCC_SESSION='orch'; claude`
-   - macOS / Linux: `CCC_SESSION=W1 claude`
-3. For the orchestrator only: in the UI, **Controls → Roles**, give that name the `orchestrator` role. Only you can grant it.
+   - Windows: `$env:CCC_PROJECT='ihop'; $env:CCC_SESSION='orch'; claude`
+   - macOS / Linux: `CCC_PROJECT=ihop CCC_SESSION=W1 claude`
+3. For the orchestrator only: in the UI, **Controls → Roles**, give that name the `orchestrator` role (one per project). Only you can grant it.
 
 When the session starts, the SessionStart hook prints `CCC: you are session "<name>" …` and the exact `ccc` command line. If that line is missing, the setup above is incomplete.
 

@@ -71,3 +71,10 @@ Each session's timeline (in the detail dialog) and `GET /api/events` show:
 - messages sent
 
 They show who did each one, and when.
+
+## 11. Two projects at once
+
+1. Launch `CCC_PROJECT=ihop CCC_SESSION=orch-ihop claude` and `CCC_PROJECT=kiosk CCC_SESSION=orch-kiosk claude`.
+2. Grant each the orchestrator role.
+3. Start workers with the matching `CCC_PROJECT`.
+4. Use the header picker to watch one project, or **All**.
