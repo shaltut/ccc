@@ -99,11 +99,25 @@ export async function peekUnread(sql: Sql, sessionId: string): Promise<Message[]
 }
 
 /** Delivers (marks read) every unread message; a delivered pause/resume flips the session's paused state. */
-export async function takeUnread(sql: Sql, sessionId: string): Promise<Message[]> {
+export type TakeOptions = {
+  /** Refuse when this process has been superseded: a wait already in flight must not take the new holder's mail. */
+  claudeSessionId?: string | null;
+  /** Ack only these ids (peek-then-ack delivery). */
+  ids?: number[];
+};
+
+export async function takeUnread(sql: Sql, sessionId: string, opts: TakeOptions = {}): Promise<Message[]> {
   return sql.begin(async (tx) => {
     const rows = await tx<Message[]>`
       update ccc.messages set read_at = now()
       where to_session_id = ${sessionId} and read_at is null
+        ${opts.ids ? tx`and id = any(${opts.ids}::bigint[])` : tx``}
+        ${
+          opts.claudeSessionId
+            ? tx`and not exists (select 1 from ccc.sessions s
+                   where s.id = ${sessionId} and ${opts.claudeSessionId}::text = any(s.superseded_claude_session_ids))`
+            : tx``
+        }
       returning ${tx.unsafe(COLUMNS)}`;
     const messages = [...rows].sort((a, b) => a.id - b.id);
     const lastControl = messages.filter((m) => m.kind === 'control').at(-1)?.controlAction;
@@ -126,6 +140,7 @@ export async function waitForUnread(
   sessionId: string,
   timeoutMs: number,
   signal?: AbortSignal,
+  claudeSessionId: string | null = null,
 ): Promise<Message[]> {
   await heartbeat(sql, sessionId, { activity: false });
   await sql`update ccc.sessions set last_wait_at = now() where id = ${sessionId}`;
@@ -140,7 +155,7 @@ export async function waitForUnread(
       () => true,
       () => false,
     );
-    const messages = await takeUnread(sql, sessionId);
+    const messages = await takeUnread(sql, sessionId, { claudeSessionId });
     if (messages.length) {
       stop.abort();
       return messages;

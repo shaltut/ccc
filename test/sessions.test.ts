@@ -170,3 +170,34 @@ test('owner retires a session', async () => {
   await assert.rejects(resolveAddress(t.sql, 'OLD'));
 });
 
+test('a -2 newcomer acts as its own row, never the base name', async () => {
+  await register('N1', 'n1');
+  await t.agent(token, 'N1', 'n1')('/api/heartbeat', post({ activity: true }));
+  assert.equal((await register('N1', 'n2')).body.assignedName, 'N1-2');
+  // Its later calls still carry X-CCC-Session: N1 (the env var), plus its own Claude id.
+  const me = await (await t.agent(token, 'N1', 'n2')('/api/me')).json();
+  assert.equal(me.session.name, 'N1-2');
+  await t.agent(token, 'N1', 'n2')('/api/status', post({ status: 'offline' }));
+  const rows = await t.sql<{ name: string; status: string }[]>`select name, status from ccc.sessions where name like 'N1%' order by name`;
+  assert.deepEqual(rows.map((r) => [r.name, r.status]), [['N1', 'working'], ['N1-2', 'offline']]);
+});
+
+test('a resumed process that takes its name back is not locked out', async () => {
+  await register('Z1', 'z1');
+  await ageActivity('Z1', 3);
+  await register('Z1', 'z2');
+  await ageActivity('Z1', 3);
+  const back = await register('Z1', 'z1');
+  assert.equal(back.body.takeover, true);
+  assert.deepEqual(back.body.session.supersededClaudeSessionIds, ['z2']);
+  assert.equal((await t.agent(token, 'Z1', 'z1')('/api/status', post({ status: 'working' }))).status, 200);
+});
+
+test('leaving waiting_permission clears the permission blocker', async () => {
+  const s = await ensureSession(t.sql, 'P9', deviceId);
+  await reportStatus(t.sql, s, { status: 'waiting_permission', blocker: 'Permission prompt: Bash' });
+  const after = await reportStatus(t.sql, s, { status: 'idle' });
+  assert.equal(after.blocker, null);
+  const blocked = await reportStatus(t.sql, s, { status: 'blocked', blocker: 'Needs DB access' });
+  assert.equal((await reportStatus(t.sql, blocked, { workingOn: 'x' })).blocker, 'Needs DB access');
+});

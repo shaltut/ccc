@@ -55,8 +55,9 @@ export function apiRoutes(sql: Sql, config: Config): Hono<AppEnv> {
   });
 
   api.post('/admin/login', async (c) => {
-    if (limiter.isLocked()) throw httpError(429, 'too_many_attempts', 'Too many failed logins; try again later');
     const { password } = await body(c, z.object({ password: z.string().max(1024) }));
+    // Checked after the last await: parallel requests must each see the failures recorded so far.
+    if (limiter.isLocked()) throw httpError(429, 'too_many_attempts', 'Too many failed logins; try again later');
     if (!checkPassword(config, password)) {
       limiter.fail();
       throw httpError(401, 'unauthorized', 'Wrong password');
@@ -157,16 +158,23 @@ export function apiRoutes(sql: Sql, config: Config): Hono<AppEnv> {
   const address = z.string().min(1).max(64);
 
   api.get('/inbox', async (c) => {
-    const { session } = requireSession(c.get('actor'));
+    const { session, claudeSessionId } = requireSession(c.get('actor'));
     const peek = c.req.query('peek') === '1';
-    const messages = peek ? await peekUnread(sql, session.id) : await takeUnread(sql, session.id);
+    const messages = peek ? await peekUnread(sql, session.id) : await takeUnread(sql, session.id, { claudeSessionId });
     return c.json({ messages, text: formatForAgent(messages) });
   });
 
+  api.post('/inbox/ack', async (c) => {
+    const { session, claudeSessionId } = requireSession(c.get('actor'));
+    const { ids } = await body(c, z.object({ ids: z.array(z.number().int().positive()).min(1).max(500) }));
+    const acked = await takeUnread(sql, session.id, { claudeSessionId, ids });
+    return c.json({ acked: acked.map((m) => m.id) });
+  });
+
   api.get('/inbox/wait', async (c) => {
-    const { session } = requireSession(c.get('actor'));
+    const { session, claudeSessionId } = requireSession(c.get('actor'));
     const timeoutMs = z.coerce.number().int().min(1000).max(30000).default(25000).parse(c.req.query('timeoutMs'));
-    const messages = await waitForUnread(sql, session.id, timeoutMs, c.req.raw.signal);
+    const messages = await waitForUnread(sql, session.id, timeoutMs, c.req.raw.signal, claudeSessionId);
     return messages.length ? c.json({ messages, text: formatForAgent(messages) }) : c.body(null, 204);
   });
 

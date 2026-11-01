@@ -54,7 +54,7 @@ function buildServer(sql: Sql, actor: Extract<Actor, { kind: 'session' }>): McpS
   );
   tool('get_inbox', { description: 'Anyone: fetch and mark read your unread CCC messages.' }, () =>
     toolResult(async () => {
-      const messages = await takeUnread(sql, session.id);
+      const messages = await takeUnread(sql, session.id, { claudeSessionId: actor.claudeSessionId });
       return { count: messages.length, text: formatForAgent(messages) };
     }),
   );

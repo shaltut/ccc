@@ -111,3 +111,16 @@ test('11th failed login is 429', async () => {
     await fresh.sql.end();
   }
 });
+
+test('parallel wrong logins cannot exceed the limit', async () => {
+  const fresh = await testApp();
+  try {
+    const statuses = await Promise.all(
+      Array.from({ length: 20 }, async () => (await fresh.app.request('/api/admin/login', json({ password: 'wrong-wrong-wrong' }))).status),
+    );
+    assert.equal(statuses.filter((s) => s === 401).length, 10);
+    assert.equal(statuses.filter((s) => s === 429).length, 10);
+  } finally {
+    await fresh.sql.end();
+  }
+});

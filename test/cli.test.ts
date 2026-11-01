@@ -22,10 +22,17 @@ after(async () => {
 
 type Run = { code: number | null; stdout: string; stderr: string; ms: number };
 
-function run(args: string[], opts: { home: string; session?: string; input?: string; cli?: string }): Promise<Run> {
+function run(
+  args: string[],
+  opts: { home: string; session?: string; input?: string; cli?: string; env?: Record<string, string> },
+): Promise<Run> {
   const env: NodeJS.ProcessEnv = { ...process.env, HOME: opts.home, USERPROFILE: opts.home };
+  // The suite may itself run inside Claude Code: never leak the outer session's identity.
   delete env.CCC_SESSION;
+  delete env.CCC_ROLE;
+  delete env.CLAUDE_CODE_SESSION_ID;
   if (opts.session) env.CCC_SESSION = opts.session;
+  Object.assign(env, opts.env);
   const started = Date.now();
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [opts.cli ?? CLI, ...args], { env });
@@ -231,4 +238,52 @@ test('install-hooks without --yes writes nothing', async () => {
   assert.equal(r.code, 0, r.stderr);
   assert.match(r.stdout, /--yes/);
   await assert.rejects(readFile(join(h, '.claude', 'settings.json')));
+});
+
+test('cli commands identify the Claude process, so a superseded one is refused', async () => {
+  const h = await home();
+  await run(['hook', 'session-start'], { home: h, session: 'C9', input: hookInput({ session_id: 'old9' }) });
+  await t.sql`update ccc.sessions set last_activity_at = now() - interval '3 minutes' where name = 'C9'`;
+  await run(['hook', 'session-start'], { home: h, session: 'C9', input: hookInput({ session_id: 'new9' }) });
+  const r = await run(['inbox'], { home: h, session: 'C9', env: { CLAUDE_CODE_SESSION_ID: 'old9' } });
+  assert.notEqual(r.code, 0);
+  assert.match(r.stderr, /superseded/);
+  const ok = await run(['inbox'], { home: h, session: 'C9', env: { CLAUDE_CODE_SESSION_ID: 'new9' } });
+  assert.equal(ok.code, 0, ok.stderr);
+});
+
+test('stop hook delivers by peek and never consumes mail it could not ack', async () => {
+  const { createServer } = await import('node:http');
+  const seen: string[] = [];
+  const fake = createServer((req, res) => {
+    seen.push(`${req.method} ${req.url}`);
+    res.setHeader('content-type', 'application/json');
+    if (req.url === '/api/inbox?peek=1') {
+      res.end(JSON.stringify({ messages: [{ id: 7 }], text: '[#7 note from owner]\nhello' }));
+    } else if (req.url === '/api/inbox/ack') {
+      res.statusCode = 500;
+      res.end('{"error":{"code":"internal_error","message":"Internal error"}}');
+    } else {
+      res.end('{}');
+    }
+  });
+  await new Promise<void>((r) => fake.listen(0, '127.0.0.1', r));
+  try {
+    const h = await home(`http://127.0.0.1:${(fake.address() as AddressInfo).port}`);
+    const r = await run(['hook', 'stop'], { home: h, session: 'C10', input: hookInput({ session_id: 's10', stop_hook_active: false }) });
+    assert.equal(r.code, 0);
+    assert.match(JSON.parse(r.stdout).reason, /hello/);
+    assert.ok(!seen.includes('GET /api/inbox'), `consuming read used: ${seen.join(', ')}`);
+    assert.ok(seen.includes('POST /api/inbox/ack'), seen.join(', '));
+  } finally {
+    fake.close();
+  }
+});
+
+test('session-start honours CCC_ROLE for a new name, and ignores an unknown one', async () => {
+  const h = await home();
+  await run(['hook', 'session-start'], { home: h, session: 'R11', input: hookInput({ session_id: 's11' }), env: { CCC_ROLE: 'helper' } });
+  await run(['hook', 'session-start'], { home: h, session: 'R12', input: hookInput({ session_id: 's12' }), env: { CCC_ROLE: 'boss' } });
+  const rows = await t.sql<{ name: string; role: string }[]>`select name, role from ccc.sessions where name in ('R11', 'R12') order by name`;
+  assert.deepEqual(rows.map((r) => [r.name, r.role]), [['R11', 'helper'], ['R12', 'worker']]);
 });

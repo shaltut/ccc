@@ -62,7 +62,15 @@ async function load() {
   state.devices = devices.devices;
 }
 
-async function refresh() {
+/** True while the owner has unsent text in a field: a remount would wipe it. */
+function hasDraft() {
+  return [...document.querySelectorAll('#view textarea, #view input:not([type=password]), #detail textarea')].some(
+    (el) => el.value.trim() !== '',
+  );
+}
+
+/** Owner actions remount at once; live updates (`live: true`) wait until no draft is open. */
+async function refresh({ live = false } = {}) {
   try {
     await load();
   } catch (err) {
@@ -70,6 +78,7 @@ async function refresh() {
     toast(err.message, true);
     return;
   }
+  if (live && hasDraft()) return;
   render();
   if (dialog.open && state.detail) await renderDetail(state.detail);
 }
@@ -488,7 +497,7 @@ function switchTab(tab) {
 for (const b of document.querySelectorAll('.tabs button')) b.addEventListener('click', () => switchTab(b.dataset.tab));
 
 let stream;
-const liveRefresh = debounce(() => void refresh(), 300);
+const liveRefresh = debounce(() => void refresh({ live: true }), 300);
 
 function connectStream() {
   stream?.close();
@@ -507,7 +516,7 @@ function connectStream() {
 
 // Relative times drift without events; repaint them every 30 s.
 setInterval(() => {
-  if (!document.body.classList.contains('signed-out') && !dialog.open) render();
+  if (!document.body.classList.contains('signed-out') && !dialog.open && !hasDraft()) render();
 }, 30_000);
 
 async function start() {

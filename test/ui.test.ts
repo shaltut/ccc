@@ -16,6 +16,14 @@ test('ui never uses innerHTML', async () => {
   }
 });
 
+test('live updates never remount over a half-typed draft', async () => {
+  const src = await readFile(new URL('app.js', PUBLIC), 'utf8');
+  assert.match(src, /function hasDraft\(/);
+  // Only owner actions force a remount; SSE and the 30 s repaint go through the draft guard.
+  assert.match(src, /const liveRefresh = debounce\(\(\) => void refresh\(\{ live: true \}\), 300\);/);
+  assert.match(src, /!dialog\.open && !hasDraft\(\)\) render\(\);/);
+});
+
 test('ui js files stay under 800 lines', async () => {
   for (const f of (await readdir(PUBLIC)).filter((x) => x.endsWith('.js'))) {
     const lines = (await readFile(new URL(f, PUBLIC), 'utf8')).split('\n').length;

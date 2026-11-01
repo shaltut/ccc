@@ -137,3 +137,24 @@ test('message to unknown session is 404', async () => {
   const res = await t.agent(token, 'M9')('/api/messages', post({ to: 'ghost', body: 'x' }));
   assert.equal(res.status, 404);
 });
+
+test("a superseded process cannot take the new holder's mail", async () => {
+  const reg = (claude: string) => t.agent(token, 'G1', claude)('/api/sessions/register', post({ claudeSessionId: claude, cwd: null }));
+  await reg('g1');
+  await t.sql`update ccc.sessions set last_activity_at = now() - interval '3 minutes' where name = 'G1'`;
+  await reg('g2');
+  const to = await session('G1');
+  await sendMessage(t.sql, { from: 'owner', to, kind: 'note', body: 'for the new holder' });
+  assert.equal((await takeUnread(t.sql, to.id, { claudeSessionId: 'g1' })).length, 0);
+  assert.equal((await takeUnread(t.sql, to.id, { claudeSessionId: 'g2' })).length, 1);
+});
+
+test('peek then ack marks only the acked ids read', async () => {
+  const to = await session('K1');
+  const a = await sendMessage(t.sql, { from: 'owner', to, kind: 'note', body: 'one' });
+  await sendMessage(t.sql, { from: 'owner', to, kind: 'note', body: 'two' });
+  const res = await t.agent(token, 'K1')('/api/inbox/ack', post({ ids: [a.id] }));
+  assert.equal(res.status, 200);
+  assert.deepEqual((await res.json()).acked, [a.id]);
+  assert.deepEqual((await peekUnread(t.sql, to.id)).map((m) => m.body), ['two']);
+});

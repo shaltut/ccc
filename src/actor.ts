@@ -3,7 +3,7 @@ import { getCookie } from 'hono/cookie';
 import type { Sql } from './db.ts';
 import type { Config } from './config.ts';
 import { deviceFromBearer, verifyAdminCookie, type Device } from './auth.ts';
-import { ensureSession, isSuperseded, SESSION_NAME, type Session } from './sessions.ts';
+import { ensureSession, isSuperseded, ownedName, SESSION_NAME, type Session } from './sessions.ts';
 import { httpError } from './errors.ts';
 
 export type Actor =
@@ -39,7 +39,8 @@ export function resolveActor(sql: Sql, config: Config): MiddlewareHandler<AppEnv
     c.set('sessionName', name);
     c.set('claudeSessionId', claudeSessionId);
     if (c.req.path === REGISTER_PATH) return next();
-    const session = await ensureSession(sql, name, device.id);
+    const own = claudeSessionId ? await ownedName(sql, name, claudeSessionId) : name;
+    const session = await ensureSession(sql, own, device.id);
     if (isSuperseded(session, claudeSessionId)) {
       throw httpError(409, 'superseded', `Another process has taken over session ${name}`);
     }

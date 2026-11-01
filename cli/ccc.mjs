@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HOOK_TIMEOUT_MS = 2000;
+const REQUESTABLE_ROLES = ['worker', 'helper', 'auditor', 'other'];
 const HOOK_HARD_EXIT_MS = 2400;
 const HEARTBEAT_THROTTLE_MS = 60_000;
 const WAIT_POLL_MS = 25_000;
@@ -44,7 +45,13 @@ function requireSessionName() {
   return name;
 }
 
-async function api(cfg, method, path, body, { timeoutMs = 15_000, claudeSessionId, name = process.env.CCC_SESSION } = {}) {
+async function api(
+  cfg,
+  method,
+  path,
+  body,
+  { timeoutMs = 15_000, claudeSessionId = process.env.CLAUDE_CODE_SESSION_ID, name = process.env.CCC_SESSION } = {},
+) {
   const headers = { authorization: `Bearer ${cfg.token}` };
   if (name) headers['x-ccc-session'] = name;
   if (claudeSessionId) headers['x-ccc-claude-session'] = claudeSessionId;
@@ -242,6 +249,7 @@ async function cmdMcpHeaders() {
   const cfg = await requireConfig();
   const headers = { Authorization: `Bearer ${cfg.token}` };
   if (process.env.CCC_SESSION) headers['X-CCC-Session'] = process.env.CCC_SESSION;
+  if (process.env.CLAUDE_CODE_SESSION_ID) headers['X-CCC-Claude-Session'] = process.env.CLAUDE_CODE_SESSION_ID;
   out(JSON.stringify(headers));
 }
 
@@ -324,7 +332,8 @@ async function runHook(event) {
 
   try {
     if (event === 'session-start') {
-      const r = await call('POST', '/api/sessions/register', { claudeSessionId: claudeSessionId ?? null, cwd: input.cwd ?? process.cwd() });
+      const role = REQUESTABLE_ROLES.includes(process.env.CCC_ROLE) ? process.env.CCC_ROLE : undefined;
+      const r = await call('POST', '/api/sessions/register', { claudeSessionId: claudeSessionId ?? null, cwd: input.cwd ?? process.cwd(), role });
       out(`${r.resume}\n\`ccc\` means: node "${selfPath()}"`);
     } else if (event === 'post-tool-use') {
       const marker = join(cccDir(), `hb-${safeId(claudeSessionId ?? name)}`);
@@ -336,11 +345,12 @@ async function runHook(event) {
     } else if (event === 'notification') {
       await call('POST', '/api/status', { status: 'waiting_permission', blocker: `Permission prompt: ${String(input.message ?? '').slice(0, 1900)}` });
     } else if (event === 'stop') {
-      await call('POST', '/api/status', { status: 'idle' });
-      const r = await call('GET', '/api/inbox');
+      const r = await call('GET', '/api/inbox?peek=1');
       if (r?.messages?.length) {
         out(JSON.stringify({ decision: 'block', reason: `${r.text}\n\n(From the CCC inbox: act on these.)` }));
+        await call('POST', '/api/inbox/ack', { ids: r.messages.map((m) => m.id) }).catch(() => {});
       }
+      await call('POST', '/api/status', { status: 'idle' });
     } else if (event === 'session-end') {
       await call('POST', '/api/status', { status: 'offline' });
     }

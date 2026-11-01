@@ -58,6 +58,16 @@ export async function ensureSession(sql: Sql, name: string, deviceId: string): P
   );
 }
 
+/** The row this Claude process registered as: `name` itself or a `name-N` it was moved to (spec §6.2). */
+export async function ownedName(sql: Sql, name: string, claudeSessionId: string): Promise<string> {
+  const [row] = await sql<{ name: string }[]>`
+    select name from ccc.sessions
+    where claude_session_id = ${claudeSessionId} and name = any(${candidates(name)})
+    order by name = ${name} desc
+    limit 1`;
+  return row?.name ?? name;
+}
+
 export type RegisterInput = {
   name: string;
   deviceId: string;
@@ -68,8 +78,9 @@ export type RegisterInput = {
 
 export type RegisterResult = { session: Session; assignedName: string; takeover: boolean };
 
-const candidates = (name: string): string[] =>
-  [name, ...Array.from({ length: MAX_SUFFIX - 1 }, (_, i) => `${name}-${i + 2}`)].filter((n) => SESSION_NAME.test(n));
+function candidates(name: string): string[] {
+  return [name, ...Array.from({ length: MAX_SUFFIX - 1 }, (_, i) => `${name}-${i + 2}`)].filter((n) => SESSION_NAME.test(n));
+}
 
 /** Spec §6.2: reattach, take over a stale holder, or move a concurrent newcomer to <name>-N. */
 export async function registerSession(sql: Sql, input: RegisterInput): Promise<RegisterResult> {
@@ -101,10 +112,11 @@ export async function registerSession(sql: Sql, input: RegisterInput): Promise<R
         existing.claudeSessionId === input.claudeSessionId;
       if (!sameProcess && existing.isActive) continue;
 
-      const superseded =
+      const superseded = (
         sameProcess || existing.claudeSessionId === null
           ? existing.supersededClaudeSessionIds
-          : [...existing.supersededClaudeSessionIds, existing.claudeSessionId];
+          : [...existing.supersededClaudeSessionIds, existing.claudeSessionId]
+      ).filter((id) => id !== input.claudeSessionId);
       const session = one(
         await tx<Session[]>`
           update ccc.sessions set
@@ -185,7 +197,12 @@ export async function reportStatus(sql: Sql, session: Session, r: StatusReport):
           when paused and ${status}::text in ('working', 'idle') then 'paused'
           else ${status}::text end,
         working_on = ${r.workingOn === undefined ? sql`working_on` : sql`${r.workingOn}`},
-        blocker = ${r.blocker === undefined ? sql`blocker` : sql`${r.blocker}`},
+        blocker = ${
+          r.blocker !== undefined
+            ? sql`${r.blocker}`
+            : sql`case when status = 'waiting_permission' and ${status}::text is not null
+                    and ${status}::text <> 'waiting_permission' then null else blocker end`
+        },
         last_heartbeat_at = now(),
         last_activity_at = case when ${status}::text = 'offline' then last_activity_at else now() end
       where id = ${session.id}
